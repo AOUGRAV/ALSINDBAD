@@ -1,10 +1,9 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { Anchor, ArrowUpRight, ChartNoAxesCombined, CircleDollarSign, ClipboardList, Globe2, LayoutDashboard, LockKeyhole, LogOut, MapPin, Menu, Package, Plus, ReceiptText, RefreshCw, Ship, ShoppingBag, X } from 'lucide-react';
-import { emptyData, type Container, type Dataset, type Lang } from '@/lib/domain';
-import { demoData } from '@/lib/demo';
-import { advanceContainer, configured, downloadReceipt, loadData, saveContainer, saveEntry, saveLoad, saveProduct, supabase, uploadReceipt } from '@/lib/storage';
+import { Anchor, ChartNoAxesCombined, CircleDollarSign, ClipboardList, Globe2, LayoutDashboard, LockKeyhole, LogOut, MapPin, Menu, Package, Plus, ReceiptText, RefreshCw, Ship, ShoppingBag, X } from 'lucide-react';
+import { activeEntries, emptyData, type Container, type Dataset, type Lang } from '@/lib/domain';
+import { advanceContainer, configured, downloadReceipt, loadData, reviseEntry, saveContainer, saveEntry, saveLoad, saveProduct, supabase, uploadReceipt } from '@/lib/storage';
 import { EditorDialog, errorMessage, translate, type Editor, type RecordChange } from './forms';
 import { Dashboard, Debts, Inventory, Ledger, Shipments } from './views';
 import { Reports } from './reports';
@@ -20,7 +19,6 @@ const navigation = [
   { id: 'reports', labels: ['التقارير', 'Reports'], description: ['صفِّ البيانات وصدّر تقارير فرع جدة إلى Excel أو PDF.', 'Filter Jeddah records and export reports to Excel or PDF.'], icon: ChartNoAxesCombined },
 ] as const;
 type Section = typeof navigation[number]['id'];
-const demoKey = 'alsindbad.demo.v1';
 const languageKey = 'alsindbad.language';
 
 function Brand() {
@@ -31,7 +29,6 @@ export default function Workspace() {
   const [lang, setLang] = useState<Lang>('ar');
   const [userId, setUserId] = useState<string | null>(null);
   const [authReady, setAuthReady] = useState(!configured);
-  const [demo, setDemo] = useState(false);
   const [data, setData] = useState<Dataset>(emptyData);
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [section, setSection] = useState<Section>('overview');
@@ -69,11 +66,10 @@ export default function Workspace() {
   useEffect(() => {
     if (!userId) return;
     let active = true;
-    setLoadedFor(null);
     setError('');
     loadData().then(result => {
       if (active) { setData(result); setLoadedFor(userId); }
-    }).catch(problem => { if (active) setError(errorMessage(problem)); });
+    }).catch(problem => { if (active) { setLoadedFor(null); setError(errorMessage(problem)); } });
     return () => { active = false; };
   }, [userId, refresh]);
   useEffect(() => {
@@ -86,14 +82,6 @@ export default function Workspace() {
     const next = lang === 'ar' ? 'en' : 'ar';
     setLang(next);
     try { localStorage.setItem(languageKey, next); } catch { /* Preference lasts for this page. */ }
-  }
-  function startDemo() {
-    setError('');
-    try {
-      const saved = localStorage.getItem(demoKey);
-      setData(saved ? JSON.parse(saved) as Dataset : demoData());
-      setDemo(true);
-    } catch (problem) { setError(errorMessage(problem)); }
   }
   async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -110,15 +98,13 @@ export default function Workspace() {
     setError('');
     setBusy(true);
     try {
-      if (configured) {
-        const { error: problem } = await supabase().auth.signOut({ scope: 'local' });
-        if (problem) throw problem;
-      }
+      const { error: problem } = await supabase().auth.signOut({ scope: 'local' });
+      if (problem) throw problem;
+      setUserId(null);
       setData(emptyData());
       setLoadedFor(null);
       setSection('overview');
       setEditor(null);
-      setDemo(false);
       setMenu(false);
       setNotice('');
     } catch (problem) { setError(errorMessage(problem)); }
@@ -130,28 +116,22 @@ export default function Workspace() {
     setError('');
     window.scrollTo(0, 0);
   }
-  function updateData(next: Dataset) {
-    if (demo) localStorage.setItem(demoKey, JSON.stringify(next));
-    setData(next);
-  }
   async function record(change: RecordChange) {
     if (change.type === 'entry') {
       const entry = change.value;
-      if (!demo) {
-        if (change.receipt) entry.receipt_path = await uploadReceipt(change.receipt, entry.id);
-        await saveEntry(entry);
-      }
-      updateData({ ...data, entries: [...data.entries, entry] });
+      if (change.receipt) entry.receipt_path = await uploadReceipt(change.receipt, entry.id);
+      if (change.original) await reviseEntry(change.original, change.reason, entry);
+      else await saveEntry(entry);
+    } else if (change.type === 'void') {
+      await reviseEntry(change.original, change.reason, null);
     } else if (change.type === 'product') {
-      if (!demo) await saveProduct(change.value);
-      updateData({ ...data, products: [...data.products, change.value] });
+      await saveProduct(change.value);
     } else if (change.type === 'container') {
-      if (!demo) await saveContainer(change.value);
-      updateData({ ...data, containers: [...data.containers, change.value] });
+      await saveContainer(change.value);
     } else {
-      if (!demo) await saveLoad(change.value);
-      updateData({ ...data, loads: [...data.loads, change.value] });
+      await saveLoad(change.value);
     }
+    setRefresh(n => n + 1);
     setNotice(t('تم الحفظ بنجاح.', 'Saved successfully.'));
   }
   async function changeStatus(container: Container) {
@@ -159,8 +139,8 @@ export default function Workspace() {
     setError('');
     setUpdating(container.id);
     try {
-      if (!demo) await advanceContainer(container);
-      updateData({ ...data, containers: data.containers.map(c => c.id === container.id ? { ...c, status: c.status === 'preparing' ? 'shipped' : 'arrived' } : c) });
+      await advanceContainer(container);
+      setRefresh(n => n + 1);
       setNotice(t('تم تحديث حالة الحاوية.', 'Container status updated.'));
     } catch (problem) { setError(errorMessage(problem)); }
     finally { setUpdating(''); }
@@ -172,17 +152,25 @@ export default function Workspace() {
   }
   const languageButton = <button className="btn secondary lang-btn" onClick={switchLanguage}><Globe2 size={16} /><span>{t('English', 'العربية')}</span></button>;
 
-  if (!authReady || (!userId && !demo)) return <main className="gate">
+  if (!authReady || !userId) return <main className="gate">
     <div className="gate-top"><Brand />{languageButton}</div>
     <div className="gate-grid">
       <section className="gate-art">
+        <svg className="harbor-mark" viewBox="0 0 400 300" aria-hidden="true">
+          <defs><pattern id="chart-grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" stroke="currentColor" strokeOpacity=".23" /></pattern></defs>
+          <rect width="400" height="300" fill="url(#chart-grid)" />
+          <path d="M-12 251C55 193 86 244 142 196S205 92 251 104 306 160 409 57" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="4 6" />
+          <circle cx="251" cy="104" r="42" fill="none" stroke="currentColor" strokeOpacity=".45" />
+          <circle cx="251" cy="104" r="8" fill="currentColor" />
+          <path d="M251 38v36m0 60v36m-66-66h36m60 0h36" stroke="currentColor" strokeOpacity=".5" />
+        </svg>
         <span className="eyebrow">JEDDAH OPERATIONS / 01</span>
         <div><span className="gate-anchor"><Anchor size={66} strokeWidth={1.2} /></span><h1>{t('عمليات جدة، في مكان واحد.', 'Jeddah operations, in one place.')}</h1><p>{t('الحسابات والمشتريات والمخزون والحاويات، من أول عملية إلى آخر شحنة.', 'Accounts, purchases, stock, and containers from the first transaction to the last shipment.')}</p></div>
         <div className="gate-location"><MapPin size={16} />{t('جدة · المملكة العربية السعودية', 'Jeddah · Saudi Arabia')}</div>
       </section>
       <section className="gate-card">
         <span className="metric-icon green"><LockKeyhole size={20} /></span>
-        <h2>{!authReady ? t('جارٍ التحميل…', 'Loading…') : configured ? t('تسجيل الدخول', 'Sign in') : t('جرّب مساحة العمل', 'Explore the workspace')}</h2>
+        <h2>{!authReady ? t('جارٍ التحميل…', 'Loading…') : configured ? t('تسجيل الدخول', 'Sign in') : t('مساحة عمل خاصة', 'Private workspace')}</h2>
         {authReady && (configured ? <>
           <p>{t('سجّل الدخول إلى حساب فرع جدة.', 'Sign in to the Jeddah workspace.')}</p>
           <form className="login-form" onSubmit={signIn}>
@@ -190,10 +178,7 @@ export default function Workspace() {
             <label className="field"><span>{t('كلمة المرور', 'Password')}</span><input type="password" dir="ltr" name="password" autoComplete="current-password" required /></label>
             <button className="btn primary" disabled={busy}>{busy ? t('جارٍ الدخول…', 'Signing in…') : t('دخول', 'Sign in')}</button>
           </form>
-        </> : <>
-          <p>{t('استعرض السندباد ببيانات افتراضية. تُحفظ تغييرات التجربة في هذا المتصفح.', 'Explore ALSINDBAD with sample data. Demo changes are saved in this browser.')}</p>
-          <button className="btn primary" onClick={startDemo}>{t('فتح النسخة التجريبية', 'Open demo')} <ArrowUpRight size={17} /></button>
-        </>)}
+        </> : <p>{t('مساحة العمل بانتظار تفعيل تسجيل الدخول.', 'Sign-in setup is required to open this workspace.')}</p>)}
         {error && <p className="error-box" role="alert">{error}</p>}
       </section>
     </div>
@@ -201,7 +186,8 @@ export default function Workspace() {
 
   const current = navigation.find(page => page.id === section)!;
   const entries = [...data.entries].sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at));
-  const ready = demo || loadedFor === userId;
+  const currentEntries = activeEntries(entries);
+  const ready = loadedFor === userId;
   const action = section === 'inventory' ? t('إضافة صنف', 'Add product') : section === 'shipments' ? t('حاوية جديدة', 'New container') :
     section === 'purchases' ? t('شراء جديد', 'New purchase') : section === 'debts' ? t('إضافة دين', 'Add debt') : t('عملية جديدة', 'New transaction');
   function openEditor() {
@@ -220,35 +206,34 @@ export default function Workspace() {
         <Icon size={18} strokeWidth={1.8} /><span>{t(labels[0], labels[1])}</span>
       </button>)}</nav>
       <div className="sidebar-bottom">
-        <div className="workspace-state"><span />{demo ? t('بيئة تجريبية', 'Demo workspace') : t('مساحة عمل خاصة', 'Private workspace')}</div>
-        <button className="btn sidebar-exit" disabled={busy} onClick={exitWorkspace}><LogOut size={17} />{demo ? t('خروج من التجربة', 'Exit demo') : t('تسجيل الخروج', 'Sign out')}</button>
+        <div className="workspace-state"><span />{t('مساحة عمل خاصة', 'Private workspace')}</div>
+        <button className="btn sidebar-exit" disabled={busy} onClick={exitWorkspace}><LogOut size={17} />{t('تسجيل الخروج', 'Sign out')}</button>
       </div>
     </aside>
     <div className="app-content">
       <header className="topbar no-print">
         <div className="breadcrumb"><button className="icon-btn mobile-menu" onClick={() => setMenu(!menu)} aria-label={t('القائمة', 'Menu')} aria-expanded={menu}>{menu ? <X size={20} /> : <Menu size={20} />}</button>
           <span>{t('مساحة العمل', 'Workspace')}</span><span className="crumb-slash">/</span><strong>{t(current.labels[0], current.labels[1])}</strong></div>
-        <div className="actions">{!demo && ready && <button className="icon-btn" onClick={() => setRefresh(n => n + 1)} aria-label={t('تحديث البيانات', 'Refresh data')}><RefreshCw size={16} /></button>}{languageButton}</div>
+        <div className="actions">{ready && <button className="icon-btn" onClick={() => setRefresh(n => n + 1)} aria-label={t('تحديث البيانات', 'Refresh data')}><RefreshCw size={16} /></button>}{languageButton}</div>
       </header>
       <main className="main-content">
-        {demo && <div className="demo-banner no-print"><span className="demo-dot" /><strong>{t('نسخة تجريبية', 'Demo mode')}</strong><span>{t('تستخدم بيانات افتراضية محفوظة في هذا المتصفح.', 'Sample records are saved in this browser.')}</span></div>}
         <div className="page-heading no-print"><div><div className="eyebrow">{t('إدارة عمليات جدة', 'JEDDAH OPERATIONS')}</div><h1>{t(current.labels[0], current.labels[1])}</h1><p>{t(current.description[0], current.description[1])}</p></div>
           {ready && section !== 'reports' && <button className="btn primary" onClick={openEditor}><Plus size={19} />{action}</button>}
         </div>
         {error && <div className="error-box no-print" role="alert">{error}{!ready && <button className="btn secondary" onClick={() => setRefresh(n => n + 1)}>{t('إعادة المحاولة', 'Retry')}</button>}</div>}
         {!ready && !error && <p role="status" className="panel empty">{t('جارٍ تحميل السجلات…', 'Loading records…')}</p>}
         {ready && <>
-          {section === 'overview' && <Dashboard data={data} entries={entries} lang={lang} navigate={navigate} onReceipt={receipt} />}
-          {(section === 'ledger' || section === 'purchases' || section === 'receipts') && <Ledger key={section} entries={entries} lang={lang} kind={section === 'purchases' ? 'purchase' : section === 'receipts' ? 'receipts' : undefined} onReceipt={receipt} />}
-          {section === 'debts' && <Debts entries={entries} lang={lang} edit={setEditor} />}
+          {section === 'overview' && <Dashboard data={data} entries={currentEntries} lang={lang} navigate={navigate} onReceipt={receipt} edit={setEditor} />}
+          {(section === 'ledger' || section === 'purchases' || section === 'receipts') && <Ledger key={section} entries={entries} lang={lang} kind={section === 'purchases' ? 'purchase' : section === 'receipts' ? 'receipts' : undefined} onReceipt={receipt} edit={setEditor} />}
+          {section === 'debts' && <Debts entries={currentEntries} lang={lang} edit={setEditor} />}
           {section === 'inventory' && <Inventory data={data} lang={lang} />}
           {section === 'shipments' && <Shipments data={data} lang={lang} edit={setEditor} advance={changeStatus} updating={updating} />}
-          {section === 'reports' && <Reports data={data} lang={lang} demo={demo} />}
+          {section === 'reports' && <Reports data={data} lang={lang} />}
         </>}
         <footer className="app-footer no-print"><span>ALSINDBAD</span><span>{t('فرع جدة · مساحة العمليات', 'Jeddah branch · Operations workspace')}</span></footer>
       </main>
     </div>
     {notice && <div className="toast no-print" role="status">{notice}</div>}
-    {editor && ready && <EditorDialog editor={editor} data={data} lang={lang} demo={demo} close={() => setEditor(null)} save={record} />}
+    {editor && ready && <EditorDialog editor={editor} data={data} lang={lang} close={() => setEditor(null)} save={record} onReceipt={receipt} />}
   </div>;
 }

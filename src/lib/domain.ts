@@ -21,6 +21,7 @@ export const entrySchema = z.object({
   method: z.enum(['cash', 'bank', 'card']), product_id: z.uuid().nullable(),
   quantity: z.number().int().nonnegative().max(100000000), settles_id: z.uuid().nullable(),
   receipt_path: z.string().nullable(), container_id: z.uuid().nullable(), created_at: z.string(),
+  opening: z.boolean().default(false), revision: z.number().int().positive().default(1), voided_at: z.string().nullable().default(null),
 }).superRefine((v, ctx) => {
   const issue = (message: string) => ctx.addIssue({ code: 'custom', message });
   if (v.paid > v.amount) issue('المدفوع أكبر من الإجمالي / Paid exceeds total');
@@ -30,13 +31,16 @@ export const entrySchema = z.object({
   if (v.kind !== 'purchase' && (v.product_id || v.quantity)) issue('الصنف خاص بالمشتريات / Product is only for purchases');
   if (['collect', 'repay'].includes(v.kind) !== Boolean(v.settles_id)) issue('اربط السداد بالدين / Link settlement to a debt');
   if (v.container_id && (v.kind !== 'expense' || v.scope !== 'business')) issue('اربط الحاوية بمصروف تشغيلي / Only business expenses can link to containers');
+  if (v.opening && !['borrow', 'lend'].includes(v.kind)) issue('الرصيد الافتتاحي مخصص للديون القائمة / Opening balances apply to existing debts');
 });
 export type Entry = z.infer<typeof entrySchema>;
 export type Product = { id: string; name: string; category: string; unit: string; expiry: string | null; created_at: string };
 export type Container = { id: string; name: string; destination: string; booking: string; status: 'preparing' | 'shipped' | 'arrived'; created_at: string };
-export type Load = { id: string; container_id: string; product_id: string; quantity: number; created_at: string };
-export type Dataset = { entries: Entry[]; products: Product[]; containers: Container[]; loads: Load[] };
-export const emptyData = (): Dataset => ({ entries: [], products: [], containers: [], loads: [] });
+export type LoadDraft = { id: string; container_id: string; product_id: string; quantity: number; created_at: string };
+export type Load = LoadDraft & { cost_sar: number };
+export type EntryHistory = { entry_id: string; revision: number; action: 'correct' | 'void'; reason: string; previous: Entry; recorded_at: string };
+export type Dataset = { entries: Entry[]; products: Product[]; containers: Container[]; loads: Load[]; history: EntryHistory[] };
+export const emptyData = (): Dataset => ({ entries: [], products: [], containers: [], loads: [], history: [] });
 export const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
 export const minor = (value: string | number) => Math.round(Number(value) * 100);
 export function toSar(amount: number, rate: number) {
@@ -47,32 +51,37 @@ export const baseAmount = (entry: Entry, amount = entry.amount) => toSar(amount,
 export const money = (amount: number, currency: Currency = 'SAR', lang: Lang = 'ar') =>
   new Intl.NumberFormat(lang === 'ar' ? 'ar-SA' : 'en-GB', { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount / 100);
 export const cashSign = (kind: Kind) => ['funding', 'borrow', 'collect'].includes(kind) ? 1 : -1;
+export const activeEntries = (entries: Entry[]) => entries.filter(entry => !entry.voided_at);
+export const cashAmount = (entry: Entry, inSar = false) => entry.opening || entry.voided_at ? 0 :
+  cashSign(entry.kind) * (inSar ? baseAmount(entry, entry.paid) : entry.paid);
 export const debtPrincipal = (e: Entry) => e.kind === 'purchase' ? e.amount - e.paid : ['borrow', 'lend'].includes(e.kind) ? e.amount : 0;
-export const debtBalance = (entry: Entry, entries: Entry[]) => debtPrincipal(entry) - entries.filter(x => x.settles_id === entry.id).reduce((sum, x) => sum + x.amount, 0);
+export const debtBalance = (entry: Entry, entries: Entry[]) => entry.voided_at ? 0 : debtPrincipal(entry) -
+  entries.filter(x => !x.voided_at && x.settles_id === entry.id).reduce((sum, x) => sum + x.amount, 0);
 export const debtSide = (e: Entry) => e.kind === 'lend' ? 'receivable' : 'payable';
-export function validateEntry(input: unknown, data: Dataset): Entry {
+export function validateEntry(input: unknown, data: Dataset, original?: Entry): Entry {
   const e = entrySchema.parse(input);
-  if (data.entries.some(x => x.id === e.id)) throw new Error('العملية مسجلة مسبقًا / Duplicate entry');
+  if (!original && data.entries.some(x => x.id === e.id)) throw new Error('العملية مسجلة مسبقًا / Duplicate entry');
   if (e.product_id && !data.products.some(x => x.id === e.product_id)) throw new Error('الصنف غير موجود / Product not found');
   if (e.container_id && !data.containers.some(x => x.id === e.container_id)) throw new Error('الحاوية غير موجودة / Container not found');
   if (e.settles_id) {
-    const debt = data.entries.find(x => x.id === e.settles_id);
+    const debt = data.entries.find(x => x.id === e.settles_id && !x.voided_at);
     if (!debt || debtPrincipal(debt) === 0) throw new Error('الدين غير موجود / Debt not found');
     if (debt.currency !== e.currency) throw new Error('السداد بنفس عملة الدين / Settle in the debt currency');
     if ((debt.kind === 'lend' ? 'collect' : 'repay') !== e.kind) throw new Error('نوع السداد غير صحيح / Invalid settlement kind');
-    if (e.amount > debtBalance(debt, data.entries)) throw new Error('المبلغ يتجاوز المتبقي / Settlement exceeds balance');
+    if (e.amount > debtBalance(debt, data.entries.filter(x => x.id !== original?.id))) throw new Error('المبلغ يتجاوز المتبقي / Settlement exceeds balance');
     if (e.date < debt.date) throw new Error('السداد يسبق تاريخ الدين / Settlement predates debt');
     if (e.party !== debt.party || e.scope !== debt.scope) throw new Error('جهة السداد وتصنيفه يجب أن يطابقا الدين / Settlement must match debt');
   }
   return e;
 }
 export function inventory(data: Dataset, productId: string) {
-  const purchased = data.entries.filter(e => e.product_id === productId).reduce((a, e) => a + e.quantity, 0);
+  const purchases = data.entries.filter(e => !e.voided_at && e.product_id === productId);
+  const purchased = purchases.reduce((a, e) => a + e.quantity, 0);
   const loaded = data.loads.filter(e => e.product_id === productId).reduce((a, e) => a + e.quantity, 0);
-  const value = data.entries.filter(e => e.product_id === productId).reduce((a, e) => a + baseAmount(e), 0);
+  const value = purchases.reduce((a, e) => a + baseAmount(e), 0);
   return { purchased, loaded, remaining: purchased - loaded, value, unitCost: purchased ? value / purchased : 0 };
 }
-export function validateLoad(load: Load, data: Dataset) {
+export function validateLoad(load: LoadDraft, data: Dataset) {
   if (!Number.isSafeInteger(load.quantity) || load.quantity <= 0) throw new Error('الكمية غير صحيحة / Invalid quantity');
   if (data.loads.some(x => x.id === load.id)) throw new Error('التحميل مسجل مسبقًا / Duplicate load');
   const container = data.containers.find(x => x.id === load.container_id);
@@ -81,11 +90,12 @@ export function validateLoad(load: Load, data: Dataset) {
   return load;
 }
 export function summary(entries: Entry[]) {
-  const cash = entries.reduce((a, e) => a + cashSign(e.kind) * baseAmount(e, e.paid), 0);
-  const purchases = entries.filter(e => e.kind === 'purchase').reduce((a, e) => a + baseAmount(e), 0);
-  const expenses = entries.filter(e => e.kind === 'expense').reduce((a, e) => a + baseAmount(e), 0);
-  const debts = entries.filter(e => debtPrincipal(e) > 0);
-  const receivable = debts.filter(e => debtSide(e) === 'receivable').reduce((a, e) => a + baseAmount(e, debtBalance(e, entries)), 0);
-  const payable = debts.filter(e => debtSide(e) === 'payable').reduce((a, e) => a + baseAmount(e, debtBalance(e, entries)), 0);
+  const active = activeEntries(entries);
+  const cash = active.reduce((a, e) => a + cashAmount(e, true), 0);
+  const purchases = active.filter(e => e.kind === 'purchase').reduce((a, e) => a + baseAmount(e), 0);
+  const expenses = active.filter(e => e.kind === 'expense').reduce((a, e) => a + baseAmount(e), 0);
+  const debts = active.filter(e => debtPrincipal(e) > 0);
+  const receivable = debts.filter(e => debtSide(e) === 'receivable').reduce((a, e) => a + baseAmount(e, debtBalance(e, active)), 0);
+  const payable = debts.filter(e => debtSide(e) === 'payable').reduce((a, e) => a + baseAmount(e, debtBalance(e, active)), 0);
   return { cash, purchases, expenses, receivable, payable };
 }

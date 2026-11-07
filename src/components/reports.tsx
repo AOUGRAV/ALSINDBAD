@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Download, Printer } from 'lucide-react';
-import { baseAmount, cashSign, debtBalance, debtPrincipal, debtSide, inventory, kindLabels, kinds, today, type Dataset, type Lang } from '@/lib/domain';
+import { activeEntries, baseAmount, cashAmount, debtBalance, debtPrincipal, debtSide, inventory, kindLabels, kinds, today, type Dataset, type Lang } from '@/lib/domain';
 import { errorMessage, translate } from './forms';
 
 type Cell = string | number;
@@ -15,12 +15,12 @@ export const reportKinds: Record<ReportKind, [string, string]> = {
 };
 export function containerCost(data: Dataset, id: string) {
   const lines = data.loads.filter(load => load.container_id === id);
-  const goods = lines.reduce((sum, load) => sum + Math.round(inventory(data, load.product_id).unitCost * load.quantity), 0);
-  const shipping = data.entries.filter(e => e.container_id === id).reduce((sum, e) => sum + baseAmount(e), 0);
+  const goods = lines.reduce((sum, load) => sum + load.cost_sar, 0);
+  const shipping = data.entries.filter(e => !e.voided_at && e.container_id === id).reduce((sum, e) => sum + baseAmount(e), 0);
   return { lines, goods, shipping, total: goods + shipping };
 }
 
-async function downloadExcel(report: Report, title: string, range: string, lang: Lang, demo: boolean) {
+async function downloadExcel(report: Report, title: string, range: string, lang: Lang) {
   const { Workbook } = await import('exceljs');
   const book = new Workbook();
   book.creator = 'ALSINDBAD';
@@ -31,7 +31,7 @@ async function downloadExcel(report: Report, title: string, range: string, lang:
   sheet.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF153D33' } };
   sheet.getRow(1).height = 33;
   sheet.mergeCells(2, 1, 2, report.headers.length);
-  sheet.getCell('A2').value = (demo ? translate(lang)('بيانات تجريبية · ', 'Demo data · ') : '') + range;
+  sheet.getCell('A2').value = range;
   const header = sheet.getRow(4);
   header.values = report.headers;
   header.font = { bold: true, color: { argb: 'FF153D33' } };
@@ -54,7 +54,7 @@ async function downloadExcel(report: Report, title: string, range: string, lang:
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 }
 
-export function Reports({ data, lang, demo }: { data: Dataset; lang: Lang; demo: boolean }) {
+export function Reports({ data, lang }: { data: Dataset; lang: Lang }) {
   const t = translate(lang);
   const [kind, setKind] = useState<ReportKind>('ledger');
   const [from, setFrom] = useState('');
@@ -66,7 +66,8 @@ export function Reports({ data, lang, demo }: { data: Dataset; lang: Lang; demo:
   const [error, setError] = useState('');
   const dated = kind === 'ledger' || kind === 'prices';
   const invalidRange = dated && !!from && !!to && from > to;
-  const filtered = data.entries.filter(e => (!from || e.date >= from) && (!to || e.date <= to));
+  const entries = activeEntries(data.entries);
+  const filtered = entries.filter(e => (!from || e.date >= from) && (!to || e.date <= to));
   const sorted = (rows: Dataset['entries']) => [...rows].sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at));
   const original = t('المبلغ الأصلي', 'Original amount'), currency = t('العملة', 'Currency'), sar = t('القيمة (SAR)', 'Value (SAR)');
   const party = t('الجهة', 'Party'), date = t('التاريخ', 'Date'), type = t('النوع', 'Type'), scopeName = t('النطاق', 'Scope');
@@ -75,9 +76,9 @@ export function Reports({ data, lang, demo }: { data: Dataset; lang: Lang; demo:
   const report: Report = (() => {
     if (kind === 'debts') return {
       headers: [party, type, scopeName, original, currency, t('المتبقي', 'Outstanding'), sar],
-      rows: sorted(data.entries).filter(e => debtPrincipal(e) && debtBalance(e, data.entries) > 0).map(e => [e.party,
+      rows: sorted(entries).filter(e => debtPrincipal(e) && debtBalance(e, entries) > 0).map(e => [e.party,
         debtSide(e) === 'payable' ? t('علينا', 'Payable') : t('لنا', 'Receivable'), scopeText(e.scope),
-        debtPrincipal(e) / 100, e.currency, debtBalance(e, data.entries) / 100, baseAmount(e, debtBalance(e, data.entries)) / 100]),
+        debtPrincipal(e) / 100, e.currency, debtBalance(e, entries) / 100, baseAmount(e, debtBalance(e, entries)) / 100]),
       numeric: [3, 5, 6],
     };
     if (kind === 'products') return {
@@ -85,7 +86,7 @@ export function Reports({ data, lang, demo }: { data: Dataset; lang: Lang; demo:
         t('المحمّل', 'Loaded'), t('المتبقي', 'In stock'), sar, t('الصلاحية', 'Expiry')],
       rows: data.products.map(p => {
         const stock = inventory(data, p.id);
-        return [p.name, p.category, p.unit, data.entries.filter(e => e.product_id === p.id).length, stock.purchased, stock.loaded, stock.remaining, stock.value / 100, p.expiry ?? '—'];
+        return [p.name, p.category, p.unit, entries.filter(e => e.product_id === p.id).length, stock.purchased, stock.loaded, stock.remaining, stock.value / 100, p.expiry ?? '—'];
       }).sort((a, b) => Number(b[3]) - Number(a[3])),
       numeric: [7],
     };
@@ -106,7 +107,7 @@ export function Reports({ data, lang, demo }: { data: Dataset; lang: Lang; demo:
     return {
       headers: [date, type, party, t('الوصف', 'Description'), t('التصنيف', 'Category'), scopeName, original, currency, t('سعر الصرف', 'FX rate'), sar, t('حركة النقد (SAR)', 'Cash movement (SAR)')],
       rows: sorted(filtered.filter(e => (!entryKind || e.kind === entryKind) && (!scope || e.scope === scope))).map(e =>
-        [e.date, t(...kindLabels[e.kind]), e.party, e.description, e.category, scopeText(e.scope), e.amount / 100, e.currency, e.rate, baseAmount(e) / 100, cashSign(e.kind) * baseAmount(e, e.paid) / 100]),
+        [e.date, e.opening ? t('دين افتتاحي', 'Opening debt') : t(...kindLabels[e.kind]), e.party, e.description, e.category, scopeText(e.scope), e.amount / 100, e.currency, e.rate, baseAmount(e) / 100, cashAmount(e, true) / 100]),
       numeric: [6, 9, 10],
     };
   })();
@@ -116,7 +117,7 @@ export function Reports({ data, lang, demo }: { data: Dataset; lang: Lang; demo:
   async function exportFile() {
     setBusy(true);
     setError('');
-    try { await downloadExcel(report, title, range, lang, demo); }
+    try { await downloadExcel(report, title, range, lang); }
     catch (problem) { setError(errorMessage(problem)); }
     finally { setBusy(false); }
   }
@@ -134,7 +135,7 @@ export function Reports({ data, lang, demo }: { data: Dataset; lang: Lang; demo:
     </div>
     {invalidRange && <p className="error-box no-print" role="alert">{t('تاريخ النهاية يجب أن يكون بعد البداية.', 'End date must follow the start date.')}</p>}
     {error && <p className="error-box no-print" role="alert">{error}</p>}
-    <div className="report-title"><div className="eyebrow">ALSINDBAD / JEDDAH</div><h2>{title}</h2><p>{demo && t('بيانات تجريبية · ', 'Demo data · ')}{range} · {report.rows.length} {t('سجل', 'records')}</p></div>
+    <div className="report-title"><div className="eyebrow">ALSINDBAD / JEDDAH</div><h2>{title}</h2><p>{range} · {report.rows.length} {t('سجل', 'records')}</p></div>
     <div className="table-scroll" tabIndex={0} aria-label={title}><table className="report-table"><thead><tr>{report.headers.map(label => <th key={label} scope="col">{label}</th>)}</tr></thead><tbody>
       {report.rows.map((row, index) => <tr key={index}>{row.map((cell, column) => <td key={column}>{typeof cell === 'number' ? <bdi>{new Intl.NumberFormat(lang === 'ar' ? 'ar-SA' : 'en-GB', { maximumFractionDigits: column === 8 && kind === 'ledger' ? 6 : 2 }).format(cell)}</bdi> : cell}</td>)}</tr>)}
     </tbody></table></div>

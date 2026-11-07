@@ -1,12 +1,12 @@
-import { type Dataset, type Entry, today } from './domain';
+import { type Dataset, type Entry, today } from '../src/lib/domain';
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-export function demoData(): Dataset {
+export function sampleData(): Dataset {
   const date = today(), created_at = new Date().toISOString();
   const product = (n: number, name: string, category: string, unit: string) => ({ id: id(n), name, category, unit, expiry: null, created_at });
   const e = (n: number, input: Partial<Entry>): Entry => ({
     id: id(n), date, created_at, kind: 'expense', party: 'جهة تجريبية', description: 'عملية تجريبية', category: 'تشغيل',
     scope: 'business', currency: 'SAR', amount: 10000, paid: 10000, rate: 1, method: 'bank',
-    product_id: null, quantity: 0, settles_id: null, receipt_path: null, container_id: null, ...input,
+    product_id: null, quantity: 0, settles_id: null, receipt_path: null, container_id: null, opening: false, revision: 1, voided_at: null, ...input,
   });
   return {
     products: [product(1, 'زيت زيتون · كرتون 12 عبوة', 'مواد غذائية', 'كرتون'), product(2, 'عطر عود · عبوة 100 مل', 'عطور', 'كرتون'), product(3, 'فحم طبيعي · كيس 10 كجم', 'فحم', 'كيس')],
@@ -21,6 +21,7 @@ export function demoData(): Dataset {
       e(17, { party: 'مطعم (تجريبي)', description: 'وجبة غداء', scope: 'personal', category: 'أكل وشرب', amount: 8500, paid: 8500, method: 'cash' }),
       e(18, { kind: 'lend', party: 'صديق تجريبي', description: 'سلفة شخصية مستردة', scope: 'personal', amount: 500000, paid: 500000, category: 'سلف شخصية' }),
     ],
-    loads: [{ id: id(20), product_id: id(1), container_id: id(4), quantity: 80, created_at }, { id: id(21), product_id: id(3), container_id: id(4), quantity: 150, created_at }],
+    loads: [{ id: id(20), product_id: id(1), container_id: id(4), quantity: 80, cost_sar: 1920000, created_at }, { id: id(21), product_id: id(3), container_id: id(4), quantity: 150, cost_sar: 975000, created_at }],
+    history: [],
   };
 }

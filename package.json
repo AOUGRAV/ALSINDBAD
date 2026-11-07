@@ -1,21 +1,24 @@
 {
   "name": "alsindbad",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --hostname 127.0.0.1",
-    "build": "next build",
-    "start": "next start --hostname 127.0.0.1",
+    "dev": "node scripts/prepare-ocr.mjs && next dev --hostname 127.0.0.1",
+    "build": "node scripts/prepare-ocr.mjs && next build",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "latest",
+    "@tesseract.js-data/ara": "1.0.0",
+    "@tesseract.js-data/eng": "1.0.0",
     "exceljs": "4.4.0",
     "lucide-react": "latest",
     "next": "latest",
+    "pdfjs-dist": "6.5.438",
     "react": "latest",
     "react-dom": "latest",
+    "tesseract.js": "7.0.0",
     "zod": "latest"
   },
   "devDependencies": {
@@ -25,6 +28,8 @@
     "tsx": "latest",
     "typescript": "latest"
   },
-  "engines": { "node": "24.x" },
+  "engines": {
+    "node": "24.x"
+  },
   "packageManager": "pnpm@10.17.1"
 }
