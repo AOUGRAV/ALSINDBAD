@@ -1,8 +1,22 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { baseAmount, debtBalance, debtSide, emptyData, inventory, prepareDebtEntry, summary, toSar, validateEntry, validateLoad, type Entry, type LoadDraft } from '../src/lib/domain';
+import { baseAmount, debtBalance, debtSide, emptyData, inventory, prepareDebtEntry, rateForSarTotal, summary, toSar, validateEntry, validateLoad, type Entry, type LoadDraft } from '../src/lib/domain';
 import { sampleData } from './fixtures';
+
+test('a foreign amount and a SAR total produce the corresponding exchange rate', () => {
+  const rate = rateForSarTotal(100_000, 375_000);
+  assert.equal(rate, 3.75);
+  assert.equal(toSar(100_000, rate!), 375_000);
+  assert.equal(rateForSarTotal(0, 375_000), null);
+  assert.equal(rateForSarTotal(100, 1_000_100), null);
+});
+
+test('a total that is beyond the stored rate precision can be detected before saving', () => {
+  const rate = rateForSarTotal(2_500_000, 9_375_001);
+  assert.equal(rate, 3.75);
+  assert.equal(toSar(2_500_000, rate!), 9_375_000);
+});
 
 test('borrowing, lending part of it, and paying an expense produce two debts and the remaining cash', () => {
   const data = emptyData();
@@ -118,8 +132,13 @@ test('voided payments restore the debt balance and leave cash totals', () => {
 test('correcting a repayment excludes its old amount from the available balance', () => {
   const data = sampleData();
   const debt = data.entries.find(entry => entry.kind === 'borrow')!;
-  const payment: Entry = { ...debt, id: randomUUID(), kind: 'repay', settles_id: debt.id, amount: 750_000, paid: 750_000 };
+  const payment: Entry = { ...debt, id: randomUUID(), kind: 'repay', settles_id: debt.id,
+    amount: 750_000, paid: 750_000, receipt_path: 'fixture/receipt.pdf' };
   data.entries.push(payment);
-  const correction = { ...payment, amount: 1_000_000, paid: 1_000_000 };
-  assert.equal(validateEntry(correction, data, payment).amount, debt.amount);
+  const correction = prepareDebtEntry({ id: payment.id, created_at: payment.created_at, date: payment.date,
+    debt, amount: debt.amount, rate: payment.rate, method: payment.method, description: payment.description }, data, payment);
+  assert.equal(correction.amount, debt.amount);
+  assert.equal(correction.id, payment.id);
+  assert.equal(correction.receipt_path, payment.receipt_path);
+  assert.equal(correction.settles_id, debt.id);
 });

@@ -181,7 +181,8 @@ tr:last-child td { border-bottom: 0; }
 .debt-badge { display: inline-flex; align-items: center; gap: 6px; border-radius: 9px; padding: 5px 10px; font-weight: 800; font-size: 13px; }
 .debt-delete { color: #8a322b; }
 .record-card p.debt-hint { margin-top: 8px; }
-.debt-payment-row { align-items: center; }
+.debt-payment-row { align-items: center; flex-wrap: wrap; }
+.debt-payment-actions { display: flex; flex-wrap: wrap; gap: 5px; }
 .debt-payment-row .btn { flex-shrink: 0; padding-inline: 8px; }
 .split-line { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px solid #ecf0ed; padding: 7px 0; font-size: 12px; }
 .total-line { color: var(--brand); }
@@ -208,6 +209,8 @@ tr:last-child td { border-bottom: 0; }
 .debt-option:has(input:checked) { border-color: var(--brand); background: var(--brand-light); }
 .debt-option strong, .debt-option small { display: block; }
 .debt-option small { color: var(--muted); font-size: 12px; }
+.debt-exchange-options { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 5px; font-size: 12px; }
+.debt-exchange-options .text-btn { border: 0; background: transparent; padding: 7px 0; color: var(--brand); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
 .debt-more { margin-top: 13px; }
 .debt-more > summary { color: var(--brand); font-weight: 700; font-size: 13px; cursor: pointer; padding-block: 8px; }
 .debt-more .form-grid { margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--border); }

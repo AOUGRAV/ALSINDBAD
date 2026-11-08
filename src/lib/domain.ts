@@ -47,6 +47,12 @@ export function toSar(amount: number, rate: number) {
   const million = 1_000_000n;
   return Number((BigInt(amount) * BigInt(Math.round(rate * Number(million))) + million / 2n) / million);
 }
+export function rateForSarTotal(amount: number, total: number) {
+  if (!Number.isSafeInteger(amount) || !Number.isSafeInteger(total) || amount <= 0 || total <= 0) return null;
+  const principal = BigInt(amount);
+  const rate = Number((BigInt(total) * 1_000_000n + principal / 2n) / principal) / 1_000_000;
+  return rate > 0 && rate <= 10_000 ? rate : null;
+}
 export const baseAmount = (entry: Entry, amount = entry.amount) => toSar(amount, entry.rate);
 export const money = (amount: number, currency: Currency = 'SAR', lang: Lang = 'ar') =>
   new Intl.NumberFormat(lang === 'ar' ? 'ar-SA' : 'en-GB', { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount / 100);
@@ -80,15 +86,15 @@ export function validateEntry(input: unknown, data: Dataset, original?: Entry): 
 type DebtDraft = Pick<Entry, 'id' | 'created_at' | 'date' | 'amount' | 'rate' | 'method' | 'description'> &
   ({ debt: Entry } | Pick<Entry, 'party' | 'category' | 'scope' | 'currency' | 'opening'> & { direction: DebtDirection });
 
-export function prepareDebtEntry(draft: DebtDraft, data: Dataset) {
-  const common = { paid: draft.amount, quantity: 0, product_id: null, container_id: null, receipt_path: null };
+export function prepareDebtEntry(draft: DebtDraft, data: Dataset, original?: Entry) {
+  const common = { paid: draft.amount, quantity: 0, product_id: null, container_id: null, receipt_path: original?.receipt_path ?? null };
   if ('debt' in draft) {
     const { debt, ...fields } = draft;
     return validateEntry({ ...common, ...fields, kind: settlementKind(debt), settles_id: debt.id,
-      party: debt.party, scope: debt.scope, category: debt.category, currency: debt.currency }, data);
+      party: debt.party, scope: debt.scope, category: debt.category, currency: debt.currency }, data, original);
   }
   const { direction, ...fields } = draft;
-  return validateEntry({ ...common, ...fields, kind: direction === 'receivable' ? 'lend' : 'borrow', settles_id: null }, data);
+  return validateEntry({ ...common, ...fields, kind: direction === 'receivable' ? 'lend' : 'borrow', settles_id: null }, data, original);
 }
 export function inventory(data: Dataset, productId: string) {
   const purchases = data.entries.filter(e => !e.voided_at && e.product_id === productId);

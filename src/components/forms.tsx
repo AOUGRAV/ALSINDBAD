@@ -12,7 +12,7 @@ const newRecord = () => ({ id: crypto.randomUUID(), created_at: new Date().toISO
 export type RecordEditor = { type: 'entry'; kind?: Kind; container?: Container; original?: Entry } |
   { type: 'product' } | { type: 'container' } | { type: 'load'; container: Container } |
   { type: 'history'; original: Entry } | { type: 'void'; original: Entry; debtItem?: 'debt' | 'payment' };
-export type DebtEditor = { type: 'debt' } | { type: 'settlement'; debt: Entry };
+export type DebtEditor = { type: 'debt'; original?: Entry } | { type: 'settlement'; debt: Entry; original?: Entry };
 export type Editor = RecordEditor | DebtEditor;
 export type RecordChange = { type: 'entry'; value: Entry; receipt?: File; original?: Entry; reason: string } |
   { type: 'product'; value: Product } | { type: 'container'; value: Container } | { type: 'load'; value: LoadDraft } |
@@ -181,7 +181,7 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt }: {
           <Field title={t('العملة', 'Currency')}><select value={currency} onChange={e => setCurrency(e.target.value as Currency)} disabled={Boolean(debt)}>{currencies.map(c => <option key={c}>{c}</option>)}</select></Field>
           <Field title={t('المبلغ الإجمالي', 'Total amount')}><input type="number" inputMode="decimal" min="0.01" max={debt ? remaining / 100 : 1000000000} step="0.01" value={amount} onChange={e => setAmount(e.target.value)} required /></Field>
           {kind === 'purchase' && <Field title={t('المبلغ المدفوع', 'Amount paid')}><input name="paid" defaultValue={original ? original.paid / 100 : undefined} type="number" inputMode="decimal" min="0" max={amount || undefined} step="0.01" required /></Field>}
-          {currency !== 'SAR' && <Field title={t('ريال لكل وحدة من العملة', 'SAR per unit of currency')}><input type="number" inputMode="decimal" min="0.000001" max="10000" step="0.000001" value={rate} onChange={e => setRate(e.target.value)} placeholder={debt ? String(debt.rate) : undefined} required /></Field>}
+          {currency !== 'SAR' && <Field title={t('سعر صرف 1', 'SAR per 1') + ' ' + currency + (lang === 'ar' ? ' بالريال' : '')}><input type="number" inputMode="decimal" min="0.000001" max="10000" step="0.000001" value={rate} onChange={e => setRate(e.target.value)} placeholder={debt ? String(debt.rate) : undefined} required /></Field>}
           <Field title={t('طريقة الدفع', 'Payment method')}><select name="method" defaultValue={original?.method ?? 'bank'}><option value="bank">{t('تحويل بنكي', 'Bank transfer')}</option><option value="cash">{t('نقدًا', 'Cash')}</option><option value="card">{t('بطاقة', 'Card')}</option></select></Field>
           {kind === 'expense' && scope === 'business' && data.containers.length > 0 && <Field title={t('ربط بحاوية (اختياري)', 'Link to container (optional)')}><select name="container" defaultValue={original?.container_id ?? entry?.container?.id ?? ''}><option value="">{t('بدون حاوية', 'No container')}</option>{data.containers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>}
           {currency !== 'SAR' && Number(amount) > 0 && Number(amount) <= 1000000000 && Number(rate) > 0 && Number(rate) <= 10000 && <p className="form-note field-wide">{t('ما يعادله بالريال', 'SAR equivalent')}: <bdi>{money(toSar(minor(amount), Number(rate)), 'SAR', lang)}</bdi></p>}

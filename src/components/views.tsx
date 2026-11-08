@@ -124,8 +124,8 @@ export function Ledger({ entries, lang, kind, onReceipt, edit }: {
   </section>;
 }
 
-export function Debts({ entries, lang, edit, openPurchases }: {
-  entries: Entry[]; lang: Lang; edit: (editor: Editor) => void; openPurchases: () => void;
+export function Debts({ entries, lang, edit }: {
+  entries: Entry[]; lang: Lang; edit: (editor: Editor) => void;
 }) {
   const t = translate(lang);
   const [side, setSide] = useState<'all' | DebtDirection>('all');
@@ -166,8 +166,10 @@ export function Debts({ entries, lang, edit, openPurchases }: {
         <div className="debt-total"><small>{t('المتبقي', 'Outstanding')}</small><strong><bdi>{money(balance, e.currency, lang)}</bdi></strong></div>
         <div className="actions">
           {balance > 0 && <button className="btn primary" onClick={() => edit({ type: 'settlement', debt: e })}>{payable ? t('سداد دفعة', 'Record payment sent') : t('استلام دفعة', 'Record money received')}</button>}
-          {fromPurchase ? <button className="btn secondary" onClick={openPurchases}>{t('عرض المشتريات', 'View purchases')}</button>
-            : <button className="btn secondary debt-delete" disabled={payments.length > 0} onClick={() => edit({ type: 'void', original: e, debtItem: 'debt' })}><Trash2 size={15} />{t('حذف الدين', 'Delete debt')}</button>}
+          <button className="btn secondary" onClick={() => edit(fromPurchase ? { type: 'entry', original: e } : { type: 'debt', original: e })}>
+            <Pencil size={15} />{fromPurchase ? t('تعديل الشراء', 'Edit purchase') : t('تعديل', 'Edit')}
+          </button>
+          {!fromPurchase && <button className="btn secondary debt-delete" disabled={payments.length > 0} onClick={() => edit({ type: 'void', original: e, debtItem: 'debt' })}><Trash2 size={15} />{t('حذف الدين', 'Delete debt')}</button>}
         </div>
         {fromPurchase && <p className="debt-hint">{t('هذا الدين مرتبط بعملية شراء.', 'This debt is linked to a purchase.')}</p>}
         {!fromPurchase && payments.length > 0 && <p className="debt-hint">{t('لحذف الدين، احذف الدفعات المرتبطة من التفاصيل أولًا.', 'To delete the debt, first remove its linked payments in Details.')}</p>}
@@ -177,7 +179,10 @@ export function Debts({ entries, lang, edit, openPurchases }: {
           <div className="split-line"><span>{t('أصل الدين', 'Principal')}</span><bdi>{money(debtPrincipal(e), e.currency, lang)}</bdi></div>
           {payments.map(p => <div className="split-line debt-payment-row" key={p.id}>
             <span><bdi>{money(p.amount, p.currency, lang)}</bdi> · <bdi>{p.date}</bdi></span>
-            <button className="btn secondary debt-delete" onClick={() => edit({ type: 'void', original: p, debtItem: 'payment' })}>{t('حذف الدفعة', 'Delete payment')}</button>
+            <div className="debt-payment-actions">
+              <button className="btn secondary" onClick={() => edit({ type: 'settlement', debt: e, original: p })}>{t('تعديل الدفعة', 'Edit payment')}</button>
+              <button className="btn secondary debt-delete" onClick={() => edit({ type: 'void', original: p, debtItem: 'payment' })}>{t('حذف الدفعة', 'Delete payment')}</button>
+            </div>
           </div>)}
         </details>
       </article>;

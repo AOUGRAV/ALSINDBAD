@@ -230,7 +230,7 @@ export default function Workspace() {
         {ready && <>
           {section === 'overview' && <Dashboard data={data} entries={currentEntries} lang={lang} navigate={navigate} onReceipt={receipt} edit={setEditor} />}
           {(section === 'ledger' || section === 'purchases' || section === 'receipts') && <Ledger key={section} entries={entries} lang={lang} kind={section === 'purchases' ? 'purchase' : section === 'receipts' ? 'receipts' : undefined} onReceipt={receipt} edit={setEditor} />}
-          {section === 'debts' && <Debts entries={currentEntries} lang={lang} edit={setEditor} openPurchases={() => navigate('purchases')} />}
+          {section === 'debts' && <Debts entries={currentEntries} lang={lang} edit={setEditor} />}
           {section === 'inventory' && <Inventory data={data} lang={lang} />}
           {section === 'shipments' && <Shipments data={data} lang={lang} edit={setEditor} advance={changeStatus} updating={updating} />}
           {section === 'reports' && <Reports data={data} lang={lang} />}
