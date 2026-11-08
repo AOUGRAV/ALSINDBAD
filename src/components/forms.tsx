@@ -141,7 +141,7 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
 
   return <dialog ref={dialog} className="editor" aria-labelledby="editor-title" onCancel={event => { event.preventDefault(); if (!unavailable) close(); }}>
     <header className="dialog-head">
-      <div><span className="eyebrow">ALSINDBAD / JED</span><h2 id="editor-title">{title}</h2></div>
+      <h2 id="editor-title">{title}</h2>
       <button type="button" className="icon-btn" aria-label={t('إغلاق', 'Close')} onClick={close} disabled={unavailable}><X size={19} /></button>
     </header>
     {editor.type === 'history' ? <div className="history-list">

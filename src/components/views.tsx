@@ -71,9 +71,9 @@ export function Dashboard({ data, entries, lang, navigate, onReceipt, edit }: {
 }) {
   const t = translate(lang), totals = summary(entries);
   const metrics = [
-    { label: t('إجمالي المشتريات', 'Total purchases'), value: totals.purchases, icon: ShoppingBag, tone: 'green', note: t('قيمة المشتريات المسجلة', 'Recorded purchase value') },
-    { label: t('ديون لنا', 'Receivables'), value: totals.receivable, icon: ArrowDownLeft, tone: 'blue', note: t('المبالغ المتبقية للتحصيل', 'Outstanding to collect') },
-    { label: t('ديون علينا', 'Payables'), value: totals.payable, icon: ArrowUpRight, tone: 'amber', note: t('المبالغ المتبقية للسداد', 'Outstanding to repay') },
+    { label: t('إجمالي المشتريات', 'Total purchases'), value: totals.purchases, icon: ShoppingBag, tone: 'green' },
+    { label: t('ديون لنا', 'Receivables'), value: totals.receivable, icon: ArrowDownLeft, tone: 'blue' },
+    { label: t('ديون علينا', 'Payables'), value: totals.payable, icon: ArrowUpRight, tone: 'amber' },
   ];
   const breakdown = (['business', 'personal'] as const).map(scope => ({
     name: scope === 'business' ? t('مصاريف تشغيلية', 'Operating expenses') : t('مصاريف شخصية', 'Personal expenses'),
@@ -84,42 +84,40 @@ export function Dashboard({ data, entries, lang, navigate, onReceipt, edit }: {
   })).filter(balance => balance.value);
   return <>
     {!data.entries.length && <section className="panel welcome-panel">
-      <div><span className="eyebrow">{t('فرع جدة', 'JEDDAH BRANCH')}</span><h2>{t('ابدأ سجل الفرع', 'Start your branch ledger')}</h2>
-        <p>{t('سجّل الرصيد والديون القائمة، أو أضف أول فاتورة شراء.', 'Record opening balances and debts, or add your first purchase invoice.')}</p></div>
+      <h2>{t('السجل فارغ', 'Ledger is empty')}</h2>
       <div className="actions"><button className="btn primary" onClick={() => edit({ type: 'entry', kind: 'funding' })}><Wallet size={17} />{t('تسجيل رصيد', 'Record balance')}</button>
         <button className="btn secondary" onClick={() => edit({ type: 'purchase' })}><ShoppingBag size={17} />{t('إضافة فاتورة شراء', 'Add purchase invoice')}</button></div>
     </section>}
     <div className="metric-grid">
       <article className="metric metric-feature"><div className="metric-top"><span>{t('صافي الحركة النقدية', 'Net cash movement')}</span><span className="metric-icon"><Wallet size={19} /></span></div>
         <div className="metric-value"><bdi>{money(totals.cash, 'SAR', lang)}</bdi></div>
-        <div className="metric-note">{t('مكافئ الريال وفق الأسعار المسجلة', 'SAR equivalent at recorded rates')}</div>
       </article>
-      {metrics.map(({ label, value, icon: Icon, tone, note }) => <article className="metric" key={label}>
+      {metrics.map(({ label, value, icon: Icon, tone }) => <article className="metric" key={label}>
         <div className="metric-top"><span>{label}</span><span className={'metric-icon ' + tone}><Icon size={19} /></span></div>
-        <div className="metric-value"><bdi>{money(value, 'SAR', lang)}</bdi></div><div className="metric-note">{note}</div>
+        <div className="metric-value"><bdi>{money(value, 'SAR', lang)}</bdi></div>
       </article>)}
     </div>
     <div className="dashboard-grid">
       <section className="panel chart-panel">
-        <div className="panel-head"><div><h2>{t('المصاريف حسب النطاق', 'Expenses by scope')}</h2><p>{t('إجمالي المصاريف المسجلة بالريال', 'Recorded expenses in SAR')}</p></div><span className="metric-icon green"><CircleDollarSign size={20} /></span></div>
+        <div className="panel-head"><h2>{t('المصاريف حسب النطاق', 'Expenses by scope')}</h2><span className="metric-icon green"><CircleDollarSign size={20} /></span></div>
         <div className="chart-value"><bdi>{money(totals.expenses, 'SAR', lang)}</bdi></div>
         <div className="segmented-bar" aria-hidden="true">{totals.expenses ? breakdown.map((item, i) => <span className={'segment segment-' + i} key={item.name} style={{ width: item.value / totals.expenses * 100 + '%' }} />) : null}</div>
         <div className="legend">{breakdown.map((item, i) => <div key={item.name}><span className={'legend-dot segment-' + i} /><span>{item.name}</span><strong><bdi>{money(item.value, 'SAR', lang)}</bdi></strong></div>)}</div>
       </section>
       <section className="panel chart-panel">
-        <div className="panel-head"><div><h2>{t('النقد حسب العملة', 'Cash by currency')}</h2><p>{t('صافي المقبوض والمدفوع بالعملة الأصلية', 'Net cash in each original currency')}</p></div><span className="metric-icon blue"><Wallet size={19} /></span></div>
-        <div className="balances">{balances.length ? balances.map(b => <div key={b.currency}><span className="currency-pill">{b.currency}</span><strong><bdi>{money(b.value, b.currency, lang)}</bdi></strong></div>) : <Empty>{t('تظهر الأرصدة عند تسجيل الحركات.', 'Balances appear after recording transactions.')}</Empty>}</div>
+        <div className="panel-head"><h2>{t('النقد حسب العملة', 'Cash by currency')}</h2><span className="metric-icon blue"><Wallet size={19} /></span></div>
+        <div className="balances">{balances.length ? balances.map(b => <div key={b.currency}><span className="currency-pill">{b.currency}</span><strong><bdi>{money(b.value, b.currency, lang)}</bdi></strong></div>) : <Empty>{t('لا توجد أرصدة.', 'No balances.')}</Empty>}</div>
       </section>
     </div>
     <section className="panel">
-      <div className="panel-head"><div><h2>{t('أحدث العمليات', 'Recent transactions')}</h2><p>{t('آخر الحركات المسجلة في حسابات جدة', 'Latest activity in the Jeddah ledger')}</p></div>
+      <div className="panel-head"><h2>{t('أحدث العمليات', 'Recent transactions')}</h2>
         <button className="btn secondary" onClick={() => navigate('ledger')}>{t('عرض السجل', 'View ledger')} <ArrowUpRight size={15} /></button>
       </div>
       <EntryTable entries={entries.slice(0, 5)} lang={lang} onReceipt={onReceipt} compact />
     </section>
     <div className="dashboard-links">
-      <button className="panel quick-link" onClick={() => navigate('debts')}><span className="metric-icon amber"><CircleDollarSign size={20} /></span><span><strong>{t('متابعة الديون', 'Track debts')}</strong><small>{entries.filter(e => debtPrincipal(e) > 0 && debtBalance(e, entries) > 0).length} {t('التزامات ومستحقات مفتوحة', 'open balances')}</small></span><ArrowUpRight size={17} /></button>
-      <button className="panel quick-link" onClick={() => navigate('shipments')}><span className="metric-icon blue"><Ship size={20} /></span><span><strong>{t('الحاويات والشحن', 'Containers and shipping')}</strong><small>{data.containers.filter(c => c.status === 'preparing').length} {t('حاوية قيد التجهيز', 'containers preparing')}</small></span><ArrowUpRight size={17} /></button>
+      <button className="panel quick-link" onClick={() => navigate('debts')}><span className="metric-icon amber"><CircleDollarSign size={20} /></span><strong>{t('الديون والسلف', 'Debts and advances')}</strong><ArrowUpRight size={17} /></button>
+      <button className="panel quick-link" onClick={() => navigate('shipments')}><span className="metric-icon blue"><Ship size={20} /></span><strong>{t('الحاويات والشحن', 'Containers and shipping')}</strong><ArrowUpRight size={17} /></button>
     </div>
   </>;
 }
@@ -197,8 +195,7 @@ export function Debts({ entries, lang, edit }: {
           </button>
           {!fromPurchase && <button className="btn secondary debt-delete" disabled={payments.length > 0} onClick={() => edit({ type: 'void', original: e, debtItem: 'debt' })}><Trash2 size={15} />{t('حذف الدين', 'Delete debt')}</button>}
         </div>
-        {fromPurchase && <p className="debt-hint">{t('هذا الدين مرتبط بعملية شراء.', 'This debt is linked to a purchase.')}</p>}
-        {!fromPurchase && payments.length > 0 && <p className="debt-hint">{t('لحذف الدين، احذف الدفعات المرتبطة من التفاصيل أولًا.', 'To delete the debt, first remove its linked payments in Details.')}</p>}
+        {!fromPurchase && payments.length > 0 && <p className="debt-hint">{t('احذف الدفعات أولًا.', 'Delete the payments first.')}</p>}
         <details className="detail">
           <summary>{payments.length ? t('التفاصيل والدفعات', 'Details and payments') + ' (' + payments.length + ')' : t('التفاصيل', 'Details')}</summary>
           <p>{e.description} · <bdi>{e.date}</bdi> · {e.scope === 'business' ? t('تجاري', 'Business') : t('شخصي', 'Personal')}</p>
@@ -222,7 +219,7 @@ export function Shipments({ data, lang, edit, advance, updating }: {
 }) {
   const t = translate(lang);
   const status = { preparing: t('قيد التجهيز', 'Preparing'), shipped: t('تم الشحن', 'Shipped'), arrived: t('وصلت', 'Arrived') };
-  if (!data.containers.length) return <section className="panel"><Empty>{t('أضف حاوية لبدء ربط الأصناف ومصاريف الشحن.', 'Add a container to start tracking stock and shipping costs.')}</Empty></section>;
+  if (!data.containers.length) return <section className="panel"><Empty>{t('لا توجد حاويات.', 'No containers.')}</Empty></section>;
   return <div className="cards">{data.containers.map(c => {
     const cost = containerCost(data, c.id);
     return <article className="panel record-card" key={c.id}>

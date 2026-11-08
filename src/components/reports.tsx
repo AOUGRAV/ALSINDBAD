@@ -130,7 +130,7 @@ export function Reports({ data, lang }: { data: Dataset; lang: Lang }) {
     finally { setBusy(false); }
   }
   return <section className="panel report-panel">
-    <div className="panel-head no-print"><div><h2>{t('إنشاء تقرير', 'Build a report')}</h2><p>{t('اختر نوع التقرير ثم صفِّ البيانات قبل التصدير.', 'Choose a report and filter before exporting.')}</p></div>
+    <div className="panel-head no-print"><h2>{t('إنشاء تقرير', 'Build a report')}</h2>
       <div className="actions"><button className="btn secondary" disabled={busy || !report.rows.length || invalidRange} onClick={exportFile}><Download size={17} />{busy ? t('جارٍ التصدير…', 'Exporting…') : 'Excel'}</button>
         <button className="btn secondary" disabled={!report.rows.length || invalidRange} onClick={() => window.print()}><Printer size={17} /> PDF</button></div>
     </div>
@@ -143,7 +143,7 @@ export function Reports({ data, lang }: { data: Dataset; lang: Lang }) {
     </div>
     {invalidRange && <p className="error-box no-print" role="alert">{t('تاريخ النهاية يجب أن يكون بعد البداية.', 'End date must follow the start date.')}</p>}
     {error && <p className="error-box no-print" role="alert">{error}</p>}
-    <div className="report-title"><div className="eyebrow">ALSINDBAD / JEDDAH</div><h2>{title}</h2><p>{range} · {report.rows.length} {t('سجل', 'records')}</p></div>
+    <div className="report-title"><h2>{title}</h2><p>{range} · {report.rows.length} {t('سجل', 'records')}</p></div>
     <div className="table-scroll" tabIndex={0} aria-label={title}><table className="report-table"><thead><tr>{report.headers.map(label => <th key={label} scope="col">{label}</th>)}</tr></thead><tbody>
       {report.rows.map((row, index) => <tr key={index}>{row.map((cell, column) => <td key={column}>{typeof cell === 'number' ? <bdi>{new Intl.NumberFormat(lang === 'ar' ? 'ar-SA' : 'en-GB', { maximumFractionDigits: column === 8 && kind === 'ledger' ? 6 : column === 4 && kind === 'prices' ? 3 : 2 }).format(cell)}</bdi> : cell}</td>)}</tr>)}
     </tbody></table></div>

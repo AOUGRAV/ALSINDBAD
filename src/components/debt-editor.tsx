@@ -42,8 +42,7 @@ export function DebtEditorDialog({ editor, data, lang, close, save }: {
   const sarTotal = rate !== null && Number.isSafeInteger(principal) && principal > 0 && principal <= 100_000_000_000
     ? toSar(principal, rate) : null;
   const roundedTotal = currency !== 'SAR' && enteringTotal && sarTotal !== null && enteredTotal !== sarTotal ? sarTotal : null;
-  let exchangeHint = enteringTotal ? t('اكتب قيمة المبلغ كاملًا بالريال.', 'Enter the full amount in Saudi riyals.') :
-    t('اكتب سعر وحدة واحدة من العملة.', 'Enter the rate for one unit of the currency.');
+  let exchangeHint = '';
   if (roundedTotal !== null) exchangeHint = t('أقرب إجمالي يمكن حفظه', 'Nearest total that can be saved') + ' ' + money(roundedTotal, 'SAR', lang);
   else if (sarTotal !== null) exchangeHint = enteringTotal ? t('سعر الصرف المحسوب', 'Calculated exchange rate') + ' ' + rate :
     t('الإجمالي بالريال', 'Total in SAR') + ' ' + money(sarTotal, 'SAR', lang);
@@ -128,15 +127,15 @@ export function DebtEditorDialog({ editor, data, lang, close, save }: {
           {debt ? <p className="field-wide form-note">{debt.party} · {t('المتاح لهذه الدفعة', 'Available for this payment')}: <bdi>{money(balance, debt.currency, lang)}</bdi></p> : <>
             {original ? <p className="field-wide form-note">{debtSide(original) === 'receivable' ? t('دين لنا', 'Owed to us') : t('دين علينا', 'We owe')}</p> :
             <fieldset className="field-wide debt-direction">
-              <legend>{t('الدين لمين؟', 'Who owes the money?')}</legend>
+              <legend>{t('نوع الدين', 'Debt direction')}</legend>
               <div className="debt-direction-options">
                 <label className="debt-option">
                   <input type="radio" name="direction" value="receivable" required />
-                  <span><strong>{t('لنا', 'Owed to us')}</strong><small>{t('أنا أعطيت شخصًا مبلغًا', 'I lent someone money')}</small></span>
+                  <strong>{t('دين لنا', 'Owed to us')}</strong>
                 </label>
                 <label className="debt-option">
                   <input type="radio" name="direction" value="payable" required />
-                  <span><strong>{t('علينا', 'We owe')}</strong><small>{t('شخص أعطاني مبلغًا', 'Someone lent me money')}</small></span>
+                  <strong>{t('دين علينا', 'We owe')}</strong>
                 </label>
               </div>
             </fieldset>}

@@ -11,13 +11,13 @@ import { Dashboard, Debts, Ledger, Shipments } from './views';
 import { Reports } from './reports';
 
 const navigation = [
-  { id: 'overview', labels: ['نظرة عامة', 'Overview'], description: ['ملخص حسابات ومشتريات فرع جدة في مكان واحد.', 'Your Jeddah accounts and operations in one place.'], icon: LayoutDashboard },
-  { id: 'ledger', labels: ['الحركات المالية', 'Transactions'], description: ['تتبع التمويل والمصاريف والأصول وحركة النقد.', 'Track funding, expenses, assets, and cash movement.'], icon: ClipboardList },
-  { id: 'purchases', labels: ['المشتريات', 'Purchases'], description: ['سجّل فواتير الشراء وتابع المبالغ المدفوعة والمتبقية.', 'Record purchase invoices and track amounts paid and outstanding.'], icon: ShoppingBag },
-  { id: 'debts', labels: ['الديون والسلف', 'Debts and advances'], description: ['اعرف مين له عندك ومين عليه لك.', 'See who owes you and who you owe.'], icon: CircleDollarSign },
-  { id: 'shipments', labels: ['الحاويات والشحن', 'Containers'], description: ['أدر تحميل البضائع وتابع تكاليف الحاويات والشحن.', 'Manage stock loading and track container and shipping costs.'], icon: Ship },
-  { id: 'receipts', labels: ['الفواتير', 'Invoices'], description: ['استعرض فواتير الشراء وإيصالات الحركات المالية.', 'Find purchase invoices and transaction receipts.'], icon: ReceiptText },
-  { id: 'reports', labels: ['التقارير', 'Reports'], description: ['صفِّ البيانات وصدّر تقارير فرع جدة إلى Excel أو PDF.', 'Filter Jeddah records and export reports to Excel or PDF.'], icon: ChartNoAxesCombined },
+  { id: 'overview', labels: ['نظرة عامة', 'Overview'], icon: LayoutDashboard },
+  { id: 'ledger', labels: ['الحركات المالية', 'Transactions'], icon: ClipboardList },
+  { id: 'purchases', labels: ['المشتريات', 'Purchases'], icon: ShoppingBag },
+  { id: 'debts', labels: ['الديون والسلف', 'Debts and advances'], icon: CircleDollarSign },
+  { id: 'shipments', labels: ['الحاويات والشحن', 'Containers'], icon: Ship },
+  { id: 'receipts', labels: ['الفواتير', 'Invoices'], icon: ReceiptText },
+  { id: 'reports', labels: ['التقارير', 'Reports'], icon: ChartNoAxesCombined },
 ] as const;
 type Section = typeof navigation[number]['id'];
 const languageKey = 'alsindbad.language';
@@ -190,24 +190,21 @@ export default function Workspace() {
     {menu && <button className="sidebar-overlay no-print" aria-label={t('إغلاق القائمة', 'Close navigation')} onClick={() => setMenu(false)} />}
     <aside className={'sidebar no-print' + (menu ? ' sidebar-open' : '')}>
       <Brand />
-      <div className="branch"><span className="branch-icon"><MapPin size={17} /></span><div><strong>{t('فرع جدة', 'Jeddah branch')}</strong><small>{t('مساحة العمليات', 'Operations workspace')}</small></div></div>
-      <p className="nav-label">{t('مساحة العمل', 'WORKSPACE')}</p>
+      <div className="branch"><span className="branch-icon"><MapPin size={17} /></span><strong>{t('فرع جدة', 'Jeddah branch')}</strong></div>
       <nav aria-label={t('القائمة الرئيسية', 'Main navigation')}>{navigation.map(({ id, labels, icon: Icon }) => <button key={id} className={id === section ? 'nav-active' : ''} aria-current={id === section ? 'page' : undefined} onClick={() => navigate(id)}>
         <Icon size={18} strokeWidth={1.8} /><span>{t(labels[0], labels[1])}</span>
       </button>)}</nav>
       <div className="sidebar-bottom">
-        <div className="workspace-state"><span />{t('مساحة عمل خاصة', 'Private workspace')}</div>
         <button className="btn sidebar-exit" disabled={busy} onClick={exitWorkspace}><LogOut size={17} />{t('تسجيل الخروج', 'Sign out')}</button>
       </div>
     </aside>
     <div className="app-content">
       <header className="topbar no-print">
-        <div className="breadcrumb"><button className="icon-btn mobile-menu" onClick={() => setMenu(!menu)} aria-label={t('القائمة', 'Menu')} aria-expanded={menu}>{menu ? <X size={20} /> : <Menu size={20} />}</button>
-          <span>{t('مساحة العمل', 'Workspace')}</span><span className="crumb-slash">/</span><strong>{t(current.labels[0], current.labels[1])}</strong></div>
+        <button className="icon-btn mobile-menu" onClick={() => setMenu(!menu)} aria-label={t('القائمة', 'Menu')} aria-expanded={menu}>{menu ? <X size={20} /> : <Menu size={20} />}</button>
         <div className="actions">{ready && <button className="icon-btn" onClick={() => setRefresh(n => n + 1)} aria-label={t('تحديث البيانات', 'Refresh data')}><RefreshCw size={16} /></button>}{languageButton}</div>
       </header>
       <main className="main-content">
-        <div className="page-heading no-print"><div><div className="eyebrow">{t('إدارة عمليات جدة', 'JEDDAH OPERATIONS')}</div><h1>{t(current.labels[0], current.labels[1])}</h1><p>{t(current.description[0], current.description[1])}</p></div>
+        <div className="page-heading no-print"><h1>{t(current.labels[0], current.labels[1])}</h1>
           {ready && section !== 'reports' && <button className="btn primary" onClick={openEditor}><Plus size={19} />{action}</button>}
         </div>
         {error && <div className="error-box no-print" role="alert">{error}{!ready && <button className="btn secondary" onClick={() => setRefresh(n => n + 1)}>{t('إعادة المحاولة', 'Retry')}</button>}</div>}
@@ -219,7 +216,6 @@ export default function Workspace() {
           {section === 'shipments' && <Shipments data={data} lang={lang} edit={setEditor} advance={changeStatus} updating={updating} />}
           {section === 'reports' && <Reports data={data} lang={lang} />}
         </>}
-        <footer className="app-footer no-print"><span>ALSINDBAD</span><span>{t('فرع جدة · مساحة العمليات', 'Jeddah branch · Operations workspace')}</span></footer>
       </main>
     </div>
     {notice && <div className="toast no-print" role="status">{notice}</div>}
