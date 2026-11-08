@@ -2,15 +2,16 @@
 
 import { useState } from 'react';
 import { Download, Printer } from 'lucide-react';
-import { activeEntries, baseAmount, cashAmount, debtBalance, debtPrincipal, debtSide, inventory, kindLabels, kinds, today, type Dataset, type Lang } from '@/lib/domain';
+import { activeEntries, baseAmount, cashAmount, debtBalance, debtPrincipal, debtSide, kindLabels, kinds, today, type Dataset, type Lang } from '@/lib/domain';
+import { invoiceLineTotal, invoiceTotals, invoiceVatPercent } from '@/lib/purchases';
 import { errorMessage, translate } from './forms';
 
 type Cell = string | number;
 type Report = { headers: string[]; rows: Cell[][]; numeric: number[] };
-type ReportKind = 'ledger' | 'debts' | 'products' | 'prices' | 'containers';
+type ReportKind = 'ledger' | 'debts' | 'purchases' | 'prices' | 'containers';
 export const reportKinds: Record<ReportKind, [string, string]> = {
   ledger: ['الحركات المالية', 'Transaction ledger'], debts: ['الديون المفتوحة', 'Open debts'],
-  products: ['المخزون والمشتريات', 'Stock and purchases'], prices: ['أسعار الشراء', 'Purchase prices'],
+  purchases: ['فواتير الشراء', 'Purchase invoices'], prices: ['أسعار الشراء', 'Purchase prices'],
   containers: ['تكلفة الحاويات', 'Container costs'],
 };
 export function containerCost(data: Dataset, id: string) {
@@ -64,7 +65,7 @@ export function Reports({ data, lang }: { data: Dataset; lang: Lang }) {
   const [entryKind, setEntryKind] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const dated = kind === 'ledger' || kind === 'prices';
+  const dated = kind === 'ledger' || kind === 'purchases' || kind === 'prices';
   const invalidRange = dated && !!from && !!to && from > to;
   const entries = activeEntries(data.entries);
   const filtered = entries.filter(e => (!from || e.date >= from) && (!to || e.date <= to));
@@ -72,7 +73,7 @@ export function Reports({ data, lang }: { data: Dataset; lang: Lang }) {
   const original = t('المبلغ الأصلي', 'Original amount'), currency = t('العملة', 'Currency'), sar = t('القيمة (SAR)', 'Value (SAR)');
   const party = t('الجهة', 'Party'), date = t('التاريخ', 'Date'), type = t('النوع', 'Type'), scopeName = t('النطاق', 'Scope');
   const scopeText = (value: string) => value === 'business' ? t('تجاري', 'Business') : t('شخصي', 'Personal');
-  const product = t('الصنف', 'Product');
+  const product = t('المنتج', 'Product'), invoiceNumber = t('رقم الفاتورة', 'Invoice number'), unit = t('الوحدة', 'Unit');
   const report: Report = (() => {
     if (kind === 'debts') return {
       headers: [party, type, scopeName, original, currency, t('المتبقي', 'Outstanding'), sar],
@@ -81,14 +82,16 @@ export function Reports({ data, lang }: { data: Dataset; lang: Lang }) {
         debtPrincipal(e) / 100, e.currency, debtBalance(e, entries) / 100, baseAmount(e, debtBalance(e, entries)) / 100]),
       numeric: [3, 5, 6],
     };
-    if (kind === 'products') return {
-      headers: [product, t('التصنيف', 'Category'), t('وحدة القياس', 'Unit'), t('مرات الشراء', 'Purchases'), t('المشتَرى', 'Purchased'),
-        t('المحمّل', 'Loaded'), t('المتبقي', 'In stock'), sar, t('الصلاحية', 'Expiry')],
-      rows: data.products.map(p => {
-        const stock = inventory(data, p.id);
-        return [p.name, p.category, p.unit, entries.filter(e => e.product_id === p.id).length, stock.purchased, stock.loaded, stock.remaining, stock.value / 100, p.expiry ?? '—'];
-      }).sort((a, b) => Number(b[3]) - Number(a[3])),
-      numeric: [7],
+    if (kind === 'purchases') return {
+      headers: [date, invoiceNumber, party, currency, t('قبل الضريبة', 'Before VAT'), t('الضريبة', 'VAT') + ' ' + invoiceVatPercent + '%',
+        t('الإجمالي', 'Total'), t('المدفوع', 'Paid'), sar],
+      rows: sorted(filtered.filter(e => e.kind === 'purchase')).map(e => {
+        const totals = e.invoice_items && invoiceTotals(e.invoice_items);
+        const paid = e.paid + debtPrincipal(e) - debtBalance(e, entries);
+        return [e.date, e.invoice_number ?? '—', e.party, e.currency, totals ? totals.subtotal / 100 : '—',
+          totals ? totals.vat / 100 : '—', e.amount / 100, paid / 100, baseAmount(e) / 100];
+      }),
+      numeric: [4, 5, 6, 7, 8],
     };
     if (kind === 'containers') return {
       headers: [t('الحاوية', 'Container'), t('الوجهة', 'Destination'), t('قيمة البضاعة (SAR)', 'Stock value (SAR)'), t('مصاريف الشحن (SAR)', 'Shipping (SAR)'), t('الإجمالي (SAR)', 'Total (SAR)')],
@@ -99,10 +102,15 @@ export function Reports({ data, lang }: { data: Dataset; lang: Lang }) {
       numeric: [2, 3, 4],
     };
     if (kind === 'prices') return {
-      headers: [date, product, party, t('الكمية', 'Quantity'), currency, t('سعر الوحدة', 'Unit price'), t('سعر الوحدة (SAR)', 'Unit price (SAR)'), sar],
-      rows: sorted(filtered.filter(e => e.kind === 'purchase')).map(e => [e.date, data.products.find(p => p.id === e.product_id)?.name ?? '—', e.party, e.quantity,
-        e.currency, e.amount / e.quantity / 100, baseAmount(e) / e.quantity / 100, baseAmount(e) / 100]),
-      numeric: [5, 6, 7],
+      headers: [date, invoiceNumber, product, party, t('الكمية', 'Quantity'), unit, currency, t('سعر الوحدة', 'Unit price'), t('سعر الوحدة (SAR)', 'Unit price (SAR)'), sar],
+      rows: sorted(filtered.filter(e => e.kind === 'purchase')).flatMap((e): Cell[][] => {
+        if (e.invoice_items) return e.invoice_items.map(item => [e.date, e.invoice_number ?? '—', item.name, e.party, item.quantity,
+          item.unit, e.currency, item.unit_price / 100, baseAmount(e, item.unit_price) / 100, baseAmount(e, invoiceLineTotal(item) ?? 0) / 100]);
+        const legacyProduct = data.products.find(p => p.id === e.product_id);
+        return [[e.date, '—', legacyProduct?.name ?? '—', e.party, e.quantity, legacyProduct?.unit ?? '—', e.currency,
+          e.amount / e.quantity / 100, baseAmount(e) / e.quantity / 100, baseAmount(e) / 100]];
+      }),
+      numeric: [7, 8, 9],
     };
     return {
       headers: [date, type, party, t('الوصف', 'Description'), t('التصنيف', 'Category'), scopeName, original, currency, t('سعر الصرف', 'FX rate'), sar, t('حركة النقد (SAR)', 'Cash movement (SAR)')],
@@ -137,7 +145,7 @@ export function Reports({ data, lang }: { data: Dataset; lang: Lang }) {
     {error && <p className="error-box no-print" role="alert">{error}</p>}
     <div className="report-title"><div className="eyebrow">ALSINDBAD / JEDDAH</div><h2>{title}</h2><p>{range} · {report.rows.length} {t('سجل', 'records')}</p></div>
     <div className="table-scroll" tabIndex={0} aria-label={title}><table className="report-table"><thead><tr>{report.headers.map(label => <th key={label} scope="col">{label}</th>)}</tr></thead><tbody>
-      {report.rows.map((row, index) => <tr key={index}>{row.map((cell, column) => <td key={column}>{typeof cell === 'number' ? <bdi>{new Intl.NumberFormat(lang === 'ar' ? 'ar-SA' : 'en-GB', { maximumFractionDigits: column === 8 && kind === 'ledger' ? 6 : 2 }).format(cell)}</bdi> : cell}</td>)}</tr>)}
+      {report.rows.map((row, index) => <tr key={index}>{row.map((cell, column) => <td key={column}>{typeof cell === 'number' ? <bdi>{new Intl.NumberFormat(lang === 'ar' ? 'ar-SA' : 'en-GB', { maximumFractionDigits: column === 8 && kind === 'ledger' ? 6 : column === 4 && kind === 'prices' ? 3 : 2 }).format(cell)}</bdi> : cell}</td>)}</tr>)}
     </tbody></table></div>
     {!report.rows.length && <p className="empty">{t('لا توجد سجلات تطابق الفلاتر.', 'No records match these filters.')}</p>}
   </section>;

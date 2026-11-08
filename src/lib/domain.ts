@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { invoiceItemSchema, invoiceTotals, maxInvoiceItems, type InvoiceItem } from './purchases';
 
 export const currencies = ['SAR', 'USD', 'GBP', 'EUR'] as const;
 export const kinds = ['funding', 'borrow', 'lend', 'purchase', 'expense', 'asset', 'collect', 'repay'] as const;
@@ -7,7 +8,7 @@ export type Kind = typeof kinds[number];
 export type Lang = 'ar' | 'en';
 export const kindLabels: Record<Kind, [string, string]> = {
   funding: ['تمويل من المالك', 'Owner funding'], borrow: ['قرض مستلم', 'Borrowed funds'],
-  lend: ['سلفة ممنوحة', 'Money lent'], purchase: ['شراء بضاعة', 'Stock purchase'],
+  lend: ['سلفة ممنوحة', 'Money lent'], purchase: ['شراء', 'Purchase'],
   expense: ['مصروف', 'Expense'], asset: ['شراء أصل', 'Asset purchase'],
   collect: ['تحصيل دين', 'Debt collection'], repay: ['سداد التزام', 'Debt repayment'],
 };
@@ -21,14 +22,20 @@ export const entrySchema = z.object({
   method: z.enum(['cash', 'bank', 'card']), product_id: z.uuid().nullable(),
   quantity: z.number().int().nonnegative().max(100000000), settles_id: z.uuid().nullable(),
   receipt_path: z.string().nullable(), container_id: z.uuid().nullable(), created_at: z.string(),
+  invoice_number: z.string().trim().min(1).max(80).nullish(),
+  invoice_items: z.array(invoiceItemSchema).min(1).max(maxInvoiceItems).nullish(),
   opening: z.boolean().default(false), revision: z.number().int().positive().default(1), voided_at: z.string().nullable().default(null),
 }).superRefine((v, ctx) => {
   const issue = (message: string) => ctx.addIssue({ code: 'custom', message });
   if (v.paid > v.amount) issue('المدفوع أكبر من الإجمالي / Paid exceeds total');
   if (v.kind !== 'purchase' && v.paid !== v.amount) issue('يلزم دفع كامل المبلغ / Full payment required');
   if (v.currency === 'SAR' && v.rate !== 1) issue('سعر الريال يجب أن يكون 1 / SAR rate must be 1');
-  if (v.kind === 'purchase' && (!v.product_id || v.quantity < 1)) issue('اختر الصنف والكمية / Product and quantity required');
-  if (v.kind !== 'purchase' && (v.product_id || v.quantity)) issue('الصنف خاص بالمشتريات / Product is only for purchases');
+  if (v.kind === 'purchase') {
+    if (v.invoice_number || v.invoice_items) {
+      if (!v.invoice_number || !v.invoice_items || v.product_id || v.quantity) issue('رقم الفاتورة وبنودها مطلوبة / Invoice number and items are required');
+      else if (invoiceTotals(v.invoice_items)?.total !== v.amount) issue('الإجمالي لا يطابق بنود الفاتورة / Total does not match invoice items');
+    } else if (!v.product_id || v.quantity < 1) issue('اختر الصنف والكمية / Product and quantity required');
+  } else if (v.product_id || v.quantity || v.invoice_number || v.invoice_items) issue('بنود الفاتورة خاصة بالمشتريات / Invoice items are only for purchases');
   if (['collect', 'repay'].includes(v.kind) !== Boolean(v.settles_id)) issue('اربط السداد بالدين / Link settlement to a debt');
   if (v.container_id && (v.kind !== 'expense' || v.scope !== 'business')) issue('اربط الحاوية بمصروف تشغيلي / Only business expenses can link to containers');
   if (v.opening && !['borrow', 'lend'].includes(v.kind)) issue('الرصيد الافتتاحي مخصص للديون القائمة / Opening balances apply to existing debts');
@@ -95,6 +102,18 @@ export function prepareDebtEntry(draft: DebtDraft, data: Dataset, original?: Ent
   }
   const { direction, ...fields } = draft;
   return validateEntry({ ...common, ...fields, kind: direction === 'receivable' ? 'lend' : 'borrow', settles_id: null }, data, original);
+}
+
+type PurchaseInvoiceDraft = Pick<Entry, 'id' | 'created_at' | 'date' | 'party' | 'description' | 'category' | 'currency' | 'rate' | 'method'> &
+  { invoice_number: string; invoice_items: InvoiceItem[]; paid?: number };
+
+export function preparePurchaseInvoice(draft: PurchaseInvoiceDraft, data: Dataset, original?: Entry) {
+  const totals = invoiceTotals(draft.invoice_items);
+  if (!totals || totals.total <= 0) throw new Error('تحقق من الكميات والأسعار. يجب أن يكون إجمالي الفاتورة أكبر من صفر. / Check the invoice quantities and prices.');
+  return validateEntry({
+    ...draft, kind: 'purchase', amount: totals.total, paid: draft.paid ?? totals.total, scope: original?.scope ?? 'business',
+    product_id: null, quantity: 0, settles_id: null, container_id: null, receipt_path: original?.receipt_path ?? null,
+  }, data, original);
 }
 export function inventory(data: Dataset, productId: string) {
   const purchases = data.entries.filter(e => !e.voided_at && e.product_id === productId);

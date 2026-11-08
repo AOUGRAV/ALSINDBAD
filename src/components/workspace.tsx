@@ -1,22 +1,22 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { ChartNoAxesCombined, CircleDollarSign, ClipboardList, Globe2, LayoutDashboard, LockKeyhole, LogOut, MapPin, Menu, Package, Plus, ReceiptText, RefreshCw, Ship, ShoppingBag, X } from 'lucide-react';
+import { ChartNoAxesCombined, CircleDollarSign, ClipboardList, Globe2, LayoutDashboard, LockKeyhole, LogOut, MapPin, Menu, Plus, ReceiptText, RefreshCw, Ship, ShoppingBag, X } from 'lucide-react';
 import { activeEntries, emptyData, type Container, type Dataset, type Lang } from '@/lib/domain';
-import { advanceContainer, configured, downloadReceipt, loadData, reviseEntry, saveContainer, saveEntry, saveLoad, saveProduct, supabase, uploadReceipt } from '@/lib/storage';
+import { advanceContainer, configured, downloadReceipt, loadData, reviseEntry, saveContainer, saveEntry, saveLoad, supabase, uploadReceipt } from '@/lib/storage';
 import { EditorDialog, errorMessage, translate, type Editor, type RecordChange } from './forms';
 import { DebtEditorDialog } from './debt-editor';
-import { Dashboard, Debts, Inventory, Ledger, Shipments } from './views';
+import { PurchaseEditorDialog } from './purchase-editor';
+import { Dashboard, Debts, Ledger, Shipments } from './views';
 import { Reports } from './reports';
 
 const navigation = [
   { id: 'overview', labels: ['نظرة عامة', 'Overview'], description: ['ملخص حسابات ومشتريات فرع جدة في مكان واحد.', 'Your Jeddah accounts and operations in one place.'], icon: LayoutDashboard },
   { id: 'ledger', labels: ['الحركات المالية', 'Transactions'], description: ['تتبع التمويل والمصاريف والأصول وحركة النقد.', 'Track funding, expenses, assets, and cash movement.'], icon: ClipboardList },
-  { id: 'purchases', labels: ['المشتريات', 'Purchases'], description: ['سجّل مشتريات الموردين وتابع المدفوع والمتبقي.', 'Record supplier purchases and track amounts paid and outstanding.'], icon: ShoppingBag },
+  { id: 'purchases', labels: ['المشتريات', 'Purchases'], description: ['سجّل فواتير الشراء وتابع المبالغ المدفوعة والمتبقية.', 'Record purchase invoices and track amounts paid and outstanding.'], icon: ShoppingBag },
   { id: 'debts', labels: ['الديون والسلف', 'Debts and advances'], description: ['اعرف مين له عندك ومين عليه لك.', 'See who owes you and who you owe.'], icon: CircleDollarSign },
-  { id: 'inventory', labels: ['المخزون', 'Inventory'], description: ['تابع الأصناف والكميات المشتراة والمحملة والمتبقية.', 'Track products and quantities purchased, loaded, and in stock.'], icon: Package },
   { id: 'shipments', labels: ['الحاويات والشحن', 'Containers'], description: ['أدر تحميل البضائع وتابع تكاليف الحاويات والشحن.', 'Manage stock loading and track container and shipping costs.'], icon: Ship },
-  { id: 'receipts', labels: ['الفواتير', 'Receipts'], description: ['استعرض الفواتير والإيصالات المرفقة بالحركات.', 'Find invoices and receipts attached to transactions.'], icon: ReceiptText },
+  { id: 'receipts', labels: ['الفواتير', 'Invoices'], description: ['استعرض فواتير الشراء وإيصالات الحركات المالية.', 'Find purchase invoices and transaction receipts.'], icon: ReceiptText },
   { id: 'reports', labels: ['التقارير', 'Reports'], description: ['صفِّ البيانات وصدّر تقارير فرع جدة إلى Excel أو PDF.', 'Filter Jeddah records and export reports to Excel or PDF.'], icon: ChartNoAxesCombined },
 ] as const;
 type Section = typeof navigation[number]['id'];
@@ -128,8 +128,6 @@ export default function Workspace() {
       else await saveEntry(entry);
     } else if (change.type === 'void') {
       await reviseEntry(change.original, change.reason, null);
-    } else if (change.type === 'product') {
-      await saveProduct(change.value);
     } else if (change.type === 'container') {
       await saveContainer(change.value);
     } else {
@@ -169,7 +167,7 @@ export default function Workspace() {
           <path d="M251 38v36m0 60v36m-66-66h36m60 0h36" stroke="currentColor" strokeOpacity=".5" />
         </svg>
         <Brand />
-        <div><h1>{t('عمليات جدة، في مكان واحد.', 'Jeddah operations, in one place.')}</h1><p>{t('الحسابات والمشتريات والمخزون والحاويات، من أول عملية إلى آخر شحنة.', 'Accounts, purchases, stock, and containers from the first transaction to the last shipment.')}</p></div>
+        <div><h1>{t('عمليات جدة، في مكان واحد.', 'Jeddah operations, in one place.')}</h1><p>{t('الحسابات والمشتريات والحاويات، من أول عملية إلى آخر شحنة.', 'Accounts, purchases, and containers from the first transaction to the last shipment.')}</p></div>
         <div className="gate-location"><MapPin size={16} />{t('جدة · المملكة العربية السعودية', 'Jeddah · Saudi Arabia')}</div>
       </section>
       <section className="gate-card">
@@ -192,13 +190,13 @@ export default function Workspace() {
   const entries = [...data.entries].sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at));
   const currentEntries = activeEntries(entries);
   const ready = loadedFor === userId;
-  const action = section === 'inventory' ? t('إضافة صنف', 'Add product') : section === 'shipments' ? t('حاوية جديدة', 'New container') :
-    section === 'purchases' ? t('شراء جديد', 'New purchase') : section === 'debts' ? t('إضافة دين', 'Add debt') : t('عملية جديدة', 'New transaction');
+  const action = section === 'shipments' ? t('حاوية جديدة', 'New container') :
+    section === 'purchases' || section === 'receipts' ? t('إضافة فاتورة', 'Add invoice') : section === 'debts' ? t('إضافة دين', 'Add debt') : t('عملية جديدة', 'New transaction');
   function openEditor() {
-    if (section === 'inventory') setEditor({ type: 'product' });
-    else if (section === 'shipments') setEditor({ type: 'container' });
+    if (section === 'shipments') setEditor({ type: 'container' });
     else if (section === 'debts') setEditor({ type: 'debt' });
-    else setEditor({ type: 'entry', kind: section === 'purchases' ? 'purchase' : 'expense' });
+    else if (section === 'purchases' || section === 'receipts') setEditor({ type: 'purchase' });
+    else setEditor({ type: 'entry', kind: 'expense' });
   }
 
   return <div className="workspace">
@@ -231,7 +229,6 @@ export default function Workspace() {
           {section === 'overview' && <Dashboard data={data} entries={currentEntries} lang={lang} navigate={navigate} onReceipt={receipt} edit={setEditor} />}
           {(section === 'ledger' || section === 'purchases' || section === 'receipts') && <Ledger key={section} entries={entries} lang={lang} kind={section === 'purchases' ? 'purchase' : section === 'receipts' ? 'receipts' : undefined} onReceipt={receipt} edit={setEditor} />}
           {section === 'debts' && <Debts entries={currentEntries} lang={lang} edit={setEditor} />}
-          {section === 'inventory' && <Inventory data={data} lang={lang} />}
           {section === 'shipments' && <Shipments data={data} lang={lang} edit={setEditor} advance={changeStatus} updating={updating} />}
           {section === 'reports' && <Reports data={data} lang={lang} />}
         </>}
@@ -239,8 +236,10 @@ export default function Workspace() {
       </main>
     </div>
     {notice && <div className="toast no-print" role="status">{notice}</div>}
-    {editor && ready && (editor.type === 'debt' || editor.type === 'settlement'
+    {editor && ready && (editor.type === 'purchase'
+      ? <PurchaseEditorDialog editor={editor} data={data} lang={lang} close={() => setEditor(null)} save={record} />
+      : editor.type === 'debt' || editor.type === 'settlement'
       ? <DebtEditorDialog editor={editor} data={data} lang={lang} close={() => setEditor(null)} save={record} />
-      : <EditorDialog editor={editor} data={data} lang={lang} close={() => setEditor(null)} save={record} onReceipt={receipt} />)}
+      : <EditorDialog editor={editor} data={data} lang={lang} close={() => setEditor(null)} save={record} onReceipt={receipt} openPurchase={() => setEditor({ type: 'purchase' })} />)}
   </div>;
 }

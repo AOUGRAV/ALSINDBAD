@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Check, Paperclip, ScanText, X } from 'lucide-react';
-import { currencies, kinds, kindLabels, debtBalance, inventory, minor, money, today, toSar, validateEntry, validateLoad, type Container, type Currency, type Dataset, type Entry, type Kind, type Lang, type LoadDraft, type Product } from '@/lib/domain';
+import { currencies, kinds, kindLabels, debtBalance, inventory, minor, money, today, toSar, validateEntry, validateLoad, type Container, type Currency, type Dataset, type Entry, type Kind, type Lang, type LoadDraft } from '@/lib/domain';
 import { receiptAccept, receiptExtension } from '@/lib/receipt';
 
 export const translate = (lang: Lang) => (ar: string, en: string) => lang === 'ar' ? ar : en;
@@ -10,12 +10,13 @@ export const errorMessage = (error: unknown) => error && typeof error === 'objec
 const field = (form: FormData, key: string) => String(form.get(key) ?? '').trim();
 const newRecord = () => ({ id: crypto.randomUUID(), created_at: new Date().toISOString() });
 export type RecordEditor = { type: 'entry'; kind?: Kind; container?: Container; original?: Entry } |
-  { type: 'product' } | { type: 'container' } | { type: 'load'; container: Container } |
+  { type: 'container' } | { type: 'load'; container: Container } |
   { type: 'history'; original: Entry } | { type: 'void'; original: Entry; debtItem?: 'debt' | 'payment' };
 export type DebtEditor = { type: 'debt'; original?: Entry } | { type: 'settlement'; debt: Entry; original?: Entry };
-export type Editor = RecordEditor | DebtEditor;
+export type PurchaseEditor = { type: 'purchase'; original?: Entry };
+export type Editor = RecordEditor | DebtEditor | PurchaseEditor;
 export type RecordChange = { type: 'entry'; value: Entry; receipt?: File; original?: Entry; reason: string } |
-  { type: 'product'; value: Product } | { type: 'container'; value: Container } | { type: 'load'; value: LoadDraft } |
+  { type: 'container'; value: Container } | { type: 'load'; value: LoadDraft } |
   { type: 'void'; original: Entry; reason: string };
 type Scan = Awaited<ReturnType<typeof import('@/lib/scan-invoice').scanInvoice>>;
 
@@ -23,8 +24,9 @@ export function Field({ title, children, wide = false }: { title: string; childr
   return <label className={'field' + (wide ? ' field-wide' : '')}><span>{title}</span>{children}</label>;
 }
 
-export function EditorDialog({ editor, data, lang, close, save, onReceipt }: {
-  editor: RecordEditor; data: Dataset; lang: Lang; close: () => void; save: (change: RecordChange) => Promise<void>; onReceipt: (path: string) => void;
+export function EditorDialog({ editor, data, lang, close, save, onReceipt, openPurchase }: {
+  editor: RecordEditor; data: Dataset; lang: Lang; close: () => void; save: (change: RecordChange) => Promise<void>;
+  onReceipt: (path: string) => void; openPurchase: () => void;
 }) {
   const t = translate(lang);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -55,7 +57,7 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt }: {
     return () => { node?.close(); };
   }, []);
 
-  const title = editor.type === 'product' ? t('إضافة صنف', 'Add product') : editor.type === 'container' ?
+  const title = editor.type === 'container' ?
     t('حاوية جديدة', 'New container') : editor.type === 'load' ? t('تحميل بضاعة', 'Load stock') :
     editor.type === 'void' ? (debtItem ? deleteTitle : t('إلغاء الحركة', 'Void transaction')) : editor.type === 'history' ? t('سجل التغييرات', 'Change history') :
     original ? t('تصحيح الحركة', 'Correct transaction') : debt ? t('تسجيل دفعة', 'Record settlement') : t('عملية جديدة', 'New transaction');
@@ -116,10 +118,6 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt }: {
         if (original && !reason) throw new Error(t('اكتب سبب التصحيح.', 'Enter the correction reason.'));
         if (file) receiptExtension(file);
         await save({ type: 'entry', value: record, receipt: file ?? undefined, original, reason });
-      } else if (editor.type === 'product') {
-        const name = field(form, 'name'), category = field(form, 'category'), unit = field(form, 'unit');
-        if (!name || !category || !unit) throw new Error(t('أكمل بيانات الصنف', 'Complete the product details'));
-        await save({ type: 'product', value: { ...identity, name, category, unit, expiry: field(form, 'expiry') || null } });
       } else if (editor.type === 'container') {
         const name = field(form, 'name'), destination = field(form, 'destination');
         if (!name || !destination) throw new Error(t('أكمل بيانات الحاوية', 'Complete the container details'));
@@ -162,7 +160,11 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt }: {
       <div className="form-grid">
         {editor.type === 'entry' && <>
           {debt ? <p className="field-wide form-note">{debt.party} · {t('المتاح لهذه الدفعة', 'Available for this payment')}: <bdi>{money(remaining, debt.currency, lang)}</bdi></p> :
-            <Field title={t('نوع العملية', 'Transaction type')}><select value={kind} onChange={e => setKind(e.target.value as Kind)} disabled={Boolean(original)}>
+            <Field title={t('نوع العملية', 'Transaction type')}><select value={kind} onChange={event => {
+              const selected = event.target.value as Kind;
+              if (selected === 'purchase' && !original) openPurchase();
+              else setKind(selected);
+            }} disabled={Boolean(original)}>
               {kinds.filter(k => k !== 'collect' && k !== 'repay').map(k => <option key={k} value={k}>{t(...kindLabels[k])}</option>)}
             </select></Field>}
           <Field title={t('التاريخ', 'Date')}><input type="date" name="date" value={date} onChange={event => setDate(event.target.value)} min={debt?.date} required /></Field>
@@ -173,7 +175,6 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt }: {
           {kind === 'purchase' && <>
             <Field title={t('الصنف', 'Product')}><select name="product" required defaultValue={original?.product_id ?? ''}><option value="" disabled>{t('اختر صنفًا', 'Select product')}</option>{data.products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
             <Field title={t('الكمية', 'Quantity')}><input name="quantity" defaultValue={original?.quantity} type="number" min="1" max="100000000" step="1" inputMode="numeric" required /></Field>
-            {!data.products.length && <p className="form-note field-wide">{t('أضف صنفًا من صفحة المخزون أولًا.', 'Add a product in Inventory first.')}</p>}
           </>}
           {!debt && kind !== 'purchase' && <Field title={t('التصنيف', 'Category')}><input name="category" defaultValue={original?.category} maxLength={80} list="categories" placeholder={t('مثال: إيجار سيارة', 'e.g. Vehicle rental')} required />
             <datalist id="categories">{[t('إيجار سيارة', 'Vehicle rental'), t('وقود', 'Fuel'), t('سكن ومكتب', 'Accommodation and office'), t('إكراميات', 'Tips'), t('أكل وشرب', 'Food and drink'), t('تمويل مؤقت', 'Temporary funding'), t('نقل وشحن', 'Freight'), t('معدات', 'Equipment'), ...new Set(data.entries.map(e => e.category))].map((value, index) => <option key={index} value={value} />)}</datalist>
@@ -204,12 +205,6 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt }: {
             {scanMessage && <p role="status">{scanMessage}</p>}
           </div>}
           {original && <Field title={t('سبب التصحيح', 'Correction reason')} wide><input name="reason" maxLength={500} required /></Field>}
-        </>}
-        {editor.type === 'product' && <>
-          <Field title={t('اسم الصنف', 'Product name')} wide><input name="name" maxLength={140} required /></Field>
-          <Field title={t('التصنيف', 'Category')}><input name="category" maxLength={80} placeholder={t('مواد غذائية', 'Food')} required /></Field>
-          <Field title={t('وحدة القياس', 'Unit')}><input name="unit" maxLength={30} placeholder={t('كرتون', 'Carton')} required /></Field>
-          <Field title={t('تاريخ الصلاحية (اختياري)', 'Expiry date (optional)')}><input name="expiry" type="date" /></Field>
         </>}
         {editor.type === 'container' && <>
           <Field title={t('رقم الحاوية', 'Container number')}><input name="name" placeholder="JED–002" maxLength={80} required /></Field>

@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { type Dataset, type Entry, type Product, type Container, type LoadDraft } from './domain';
+import { type Dataset, type Entry, type Container, type LoadDraft } from './domain';
 import { receiptExtension } from './receipt';
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -23,13 +23,6 @@ export async function reviseEntry(original: Entry, reason: string, replacement: 
   const { error } = await supabase().rpc('revise_entry', {
     target: original.id, expected: original.revision, reason, payload: replacement,
   });
-  if (error) throw error;
-}
-export async function saveProduct(product: Product) {
-  const { data: { user } } = await supabase().auth.getUser();
-  if (!user) throw new Error('انتهت الجلسة / Session expired');
-  const { id, name, category, unit, expiry } = product;
-  const { error } = await supabase().from('products').insert({ id, owner_id: user.id, name, category, unit, expiry });
   if (error) throw error;
 }
 export async function saveContainer(container: Container) {

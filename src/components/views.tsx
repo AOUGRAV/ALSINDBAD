@@ -1,40 +1,63 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import { ArrowDownLeft, ArrowUpRight, Ban, Box, CircleDollarSign, Download, FileText, History, Package, Pencil, Plus, ReceiptText, Search, Ship, ShoppingBag, Trash2, Wallet } from 'lucide-react';
-import { baseAmount, cashAmount, currencies, debtBalance, debtPrincipal, debtSide, inventory, kindLabels, money, summary, type Container, type Dataset, type DebtDirection, type Entry, type Kind, type Lang } from '@/lib/domain';
+import { ArrowDownLeft, ArrowUpRight, Ban, Box, CircleDollarSign, Download, FileText, History, Pencil, Plus, ReceiptText, Search, Ship, ShoppingBag, Trash2, Wallet } from 'lucide-react';
+import { baseAmount, cashAmount, currencies, debtBalance, debtPrincipal, debtSide, kindLabels, money, summary, type Container, type Dataset, type DebtDirection, type Entry, type Kind, type Lang } from '@/lib/domain';
+import { invoiceTotals, invoiceVatPercent } from '@/lib/purchases';
 import { type Editor, translate } from './forms';
 import { containerCost } from './reports';
 
 const entryIcon = { funding: ArrowDownLeft, borrow: ArrowDownLeft, collect: ArrowDownLeft, lend: ArrowUpRight,
   expense: ReceiptText, asset: Box, purchase: ShoppingBag, repay: ArrowUpRight };
 
+function InvoiceDetail({ entry, lang }: { entry: Entry; lang: Lang }) {
+  const t = translate(lang);
+  const items = entry.invoice_items;
+  if (!items) return null;
+  const totals = invoiceTotals(items);
+  const method = { cash: t('نقدي', 'Cash'), bank: t('تحويل بنكي', 'Bank transfer'), card: t('بطاقة', 'Card') }[entry.method];
+  return <details className="invoice-detail">
+    <summary>{t('تفاصيل الفاتورة', 'Invoice details')}</summary>
+    <ul>{items.map((item, index) => <li key={index}><strong>{item.name}</strong>
+      <span><bdi>{item.quantity}</bdi> {item.unit} × <bdi>{money(item.unit_price, entry.currency, lang)}</bdi></span></li>)}</ul>
+    {totals && <dl>
+      <div><dt>{t('قبل الضريبة', 'Before VAT')}</dt><dd><bdi>{money(totals.subtotal, entry.currency, lang)}</bdi></dd></div>
+      <div><dt>{t('الضريبة', 'VAT')} <bdi>{invoiceVatPercent}%</bdi></dt><dd><bdi>{money(totals.vat, entry.currency, lang)}</bdi></dd></div>
+      <div><dt>{t('طريقة الدفع', 'Payment method')}</dt><dd>{method}</dd></div>
+    </dl>}
+  </details>;
+}
+
 export function Empty({ children }: { children: ReactNode }) {
   return <div className="empty"><FileText size={23} /><p>{children}</p></div>;
 }
-export function EntryTable({ entries, lang, onReceipt, edit, compact = false }: {
-  entries: Entry[]; lang: Lang; onReceipt: (path: string) => void; edit?: (editor: Editor) => void; compact?: boolean;
+export function EntryTable({ entries, lang, onReceipt, edit, compact = false, purchases = false }: {
+  entries: Entry[]; lang: Lang; onReceipt: (path: string) => void; edit?: (editor: Editor) => void; compact?: boolean; purchases?: boolean;
 }) {
   const t = translate(lang);
   if (!entries.length) return <Empty>{t('لا توجد عمليات لعرضها.', 'No transactions to display.')}</Empty>;
   return <div className="table-scroll" tabIndex={0} aria-label={t('الحركات المالية', 'Transactions')}><table className={'entries-table' + (compact ? ' compact' : '')}>
-    <thead><tr><th scope="col">{t('العملية', 'Transaction')}</th><th scope="col">{t('التاريخ', 'Date')}</th>
-      {!compact && <th scope="col">{t('التصنيف', 'Category')}</th>}<th scope="col">{t('المبلغ', 'Amount')}</th>
-      {!compact && <><th scope="col">{t('بالريال', 'In SAR')}</th><th scope="col">{t('الفاتورة', 'Receipt')}</th></>}
+    <thead><tr><th scope="col">{purchases ? t('الفاتورة', 'Invoice') : t('العملية', 'Transaction')}</th><th scope="col">{t('التاريخ', 'Date')}</th>
+      {!compact && !purchases && <th scope="col">{t('التصنيف', 'Category')}</th>}<th scope="col">{purchases ? t('إجمالي الفاتورة', 'Invoice total') : t('المبلغ', 'Amount')}</th>
+      {!compact && !purchases && <th scope="col">{t('بالريال', 'In SAR')}</th>}
+      {!compact && <th scope="col">{t('المرفق', 'Attachment')}</th>}
       {edit && <th scope="col">{t('إدارة الحركة', 'Manage transaction')}</th>}</tr></thead>
     <tbody>{entries.map(e => {
       const Icon = entryIcon[e.kind];
+      const editLabel = e.invoice_items ? t('تعديل الفاتورة', 'Edit invoice') : t('تصحيح الحركة', 'Correct transaction');
       return <tr key={e.id} className={e.voided_at ? 'voided-row' : undefined}>
         <td><div className="entry-name"><span className={'entry-icon ' + (cashAmount(e) > 0 ? 'positive' : 'neutral')}><Icon size={16} /></span>
-          <div><strong>{e.description}</strong><small>{e.party} · {t(...kindLabels[e.kind])}{e.opening && <> · {t('رصيد افتتاحي', 'Opening balance')}</>}</small>
+          <div><strong>{e.invoice_number ? <>{t('فاتورة شراء', 'Purchase invoice')} <bdi>{e.invoice_number}</bdi></> : e.description}</strong>
+            <small>{e.party}{!e.invoice_number && <> · {t(...kindLabels[e.kind])}</>}{e.opening && <> · {t('رصيد افتتاحي', 'Opening balance')}</>}</small>
+            {!compact && <InvoiceDetail entry={e} lang={lang} />}
             {e.voided_at && <span className="tag void-tag">{t('ملغاة', 'Voided')}</span>}</div></div></td>
         <td data-label={t('التاريخ', 'Date')}><bdi className="muted">{e.date}</bdi></td>
-        {!compact && <td data-label={t('التصنيف', 'Category')}><span className="tag">{e.category}</span><small className="table-sub">{e.scope === 'personal' ? t('شخصي', 'Personal') : t('تجاري', 'Business')}</small></td>}
-        <td data-label={t('المبلغ', 'Amount')} className="number"><bdi>{money(e.amount, e.currency, lang)}</bdi>{e.kind === 'purchase' && e.paid < e.amount && <small className="table-sub">{t('مدفوع', 'Paid')}: <bdi>{money(e.paid, e.currency, lang)}</bdi></small>}</td>
-        {!compact && <><td data-label={t('بالريال', 'In SAR')} className="number"><bdi>{money(baseAmount(e), 'SAR', lang)}</bdi>{e.currency !== 'SAR' && <small className="table-sub"><bdi>× {e.rate}</bdi></small>}</td>
-          <td data-label={t('الفاتورة', 'Receipt')}>{e.receipt_path ? <button className="icon-btn" onClick={() => onReceipt(e.receipt_path!)} aria-label={t('تنزيل الفاتورة', 'Download receipt')}><Download size={16} /></button> : '—'}</td></>}
+        {!compact && !purchases && <td data-label={t('التصنيف', 'Category')}><span className="tag">{e.category}</span><small className="table-sub">{e.scope === 'personal' ? t('شخصي', 'Personal') : t('تجاري', 'Business')}</small></td>}
+        <td data-label={purchases ? t('إجمالي الفاتورة', 'Invoice total') : t('المبلغ', 'Amount')} className="number"><bdi>{money(e.amount, e.currency, lang)}</bdi>{e.kind === 'purchase' && e.paid < e.amount && <small className="table-sub">{t('المدفوع عند التسجيل', 'Paid at entry')} <bdi>{money(e.paid, e.currency, lang)}</bdi></small>}</td>
+        {!compact && !purchases && <td data-label={t('بالريال', 'In SAR')} className="number"><bdi>{money(baseAmount(e), 'SAR', lang)}</bdi>{e.currency !== 'SAR' && <small className="table-sub"><bdi>× {e.rate}</bdi></small>}</td>}
+        {!compact && <td data-label={t('المرفق', 'Attachment')}>{e.receipt_path ? <button className="icon-btn" onClick={() => onReceipt(e.receipt_path!)} aria-label={t('تنزيل المرفق', 'Download attachment')}><Download size={16} /></button> : '—'}</td>}
         {edit && <td className="entry-actions" data-label={t('إدارة الحركة', 'Manage transaction')}><div className="actions">
-          {!e.voided_at && <><button className="icon-btn" onClick={() => edit({ type: 'entry', original: e })} aria-label={t('تصحيح الحركة', 'Correct transaction')} title={t('تصحيح الحركة', 'Correct transaction')}><Pencil size={16} /></button>
+          {!e.voided_at && <><button className={purchases ? 'btn secondary' : 'icon-btn'} onClick={() => edit({ type: e.invoice_items ? 'purchase' : 'entry', original: e })} aria-label={editLabel} title={editLabel}><Pencil size={16} />{purchases && t('تعديل', 'Edit')}</button>
             <button className="icon-btn" onClick={() => edit({ type: 'void', original: e })} aria-label={t('إلغاء الحركة', 'Void transaction')} title={t('إلغاء الحركة', 'Void transaction')}><Ban size={16} /></button></>}
           {e.revision > 1 && <button className="icon-btn" onClick={() => edit({ type: 'history', original: e })} aria-label={t('سجل التغييرات', 'Change history')} title={t('سجل التغييرات', 'Change history')}><History size={16} /></button>}
         </div></td>}
@@ -44,11 +67,11 @@ export function EntryTable({ entries, lang, onReceipt, edit, compact = false }: 
 }
 
 export function Dashboard({ data, entries, lang, navigate, onReceipt, edit }: {
-  data: Dataset; entries: Entry[]; lang: Lang; navigate: (section: 'ledger' | 'debts' | 'shipments' | 'inventory') => void; onReceipt: (path: string) => void; edit: (editor: Editor) => void;
+  data: Dataset; entries: Entry[]; lang: Lang; navigate: (section: 'ledger' | 'debts' | 'shipments') => void; onReceipt: (path: string) => void; edit: (editor: Editor) => void;
 }) {
   const t = translate(lang), totals = summary(entries);
   const metrics = [
-    { label: t('إجمالي المشتريات', 'Total purchases'), value: totals.purchases, icon: ShoppingBag, tone: 'green', note: t('قيمة البضاعة المسجلة', 'Recorded stock value') },
+    { label: t('إجمالي المشتريات', 'Total purchases'), value: totals.purchases, icon: ShoppingBag, tone: 'green', note: t('قيمة المشتريات المسجلة', 'Recorded purchase value') },
     { label: t('ديون لنا', 'Receivables'), value: totals.receivable, icon: ArrowDownLeft, tone: 'blue', note: t('المبالغ المتبقية للتحصيل', 'Outstanding to collect') },
     { label: t('ديون علينا', 'Payables'), value: totals.payable, icon: ArrowUpRight, tone: 'amber', note: t('المبالغ المتبقية للسداد', 'Outstanding to repay') },
   ];
@@ -60,11 +83,11 @@ export function Dashboard({ data, entries, lang, navigate, onReceipt, edit }: {
     currency, value: entries.filter(e => e.currency === currency).reduce((sum, e) => sum + cashAmount(e), 0),
   })).filter(balance => balance.value);
   return <>
-    {!data.entries.length && !data.products.length && <section className="panel welcome-panel">
+    {!data.entries.length && <section className="panel welcome-panel">
       <div><span className="eyebrow">{t('فرع جدة', 'JEDDAH BRANCH')}</span><h2>{t('ابدأ سجل الفرع', 'Start your branch ledger')}</h2>
-        <p>{t('سجّل الرصيد والديون القائمة، أو أضف أول صنف لتسجيل المشتريات.', 'Record opening balances and debts, or add your first product to record purchases.')}</p></div>
+        <p>{t('سجّل الرصيد والديون القائمة، أو أضف أول فاتورة شراء.', 'Record opening balances and debts, or add your first purchase invoice.')}</p></div>
       <div className="actions"><button className="btn primary" onClick={() => edit({ type: 'entry', kind: 'funding' })}><Wallet size={17} />{t('تسجيل رصيد', 'Record balance')}</button>
-        <button className="btn secondary" onClick={() => navigate('inventory')}><Package size={17} />{t('فتح المخزون', 'Open inventory')}</button></div>
+        <button className="btn secondary" onClick={() => edit({ type: 'purchase' })}><ShoppingBag size={17} />{t('إضافة فاتورة شراء', 'Add purchase invoice')}</button></div>
     </section>}
     <div className="metric-grid">
       <article className="metric metric-feature"><div className="metric-top"><span>{t('صافي الحركة النقدية', 'Net cash movement')}</span><span className="metric-icon"><Wallet size={19} /></span></div>
@@ -109,18 +132,21 @@ export function Ledger({ entries, lang, kind, onReceipt, edit }: {
   const [scope, setScope] = useState('');
   const [month, setMonth] = useState('');
   const [showVoided, setShowVoided] = useState(false);
-  const items = entries.filter(e => (kind === 'receipts' ? Boolean(e.receipt_path) : !kind || kind === e.kind) &&
+  const search = query.trim().toLowerCase();
+  const invoiceList = kind === 'purchase' || kind === 'receipts';
+  const items = entries.filter(e => (kind === 'receipts' ? Boolean(e.receipt_path || e.invoice_number) : !kind || kind === e.kind) &&
     (showVoided || !e.voided_at) && (!scope || scope === e.scope) && (!month || e.date.startsWith(month)) &&
-    [e.party, e.description, e.category, e.currency, ...kindLabels[e.kind]].some(value => value.toLowerCase().includes(query.trim().toLowerCase())));
+    (!search || [e.party, e.description, e.category, e.currency, e.invoice_number ?? '', ...kindLabels[e.kind],
+      ...(e.invoice_items?.map(item => item.name) ?? [])].some(value => value.toLowerCase().includes(search))));
   return <section className="panel">
     <div className="filters ledger-filters">
-      <label className="field search-field"><span>{t('بحث', 'Search')}</span><span className="search-input"><Search size={16} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder={t('جهة، وصف أو تصنيف', 'Party, description, or category')} /></span></label>
-      <label className="field"><span>{t('النطاق', 'Scope')}</span><select value={scope} onChange={e => setScope(e.target.value)}><option value="">{t('كل العمليات', 'All scopes')}</option><option value="business">{t('تجاري', 'Business')}</option><option value="personal">{t('شخصي', 'Personal')}</option></select></label>
+      <label className="field search-field"><span>{t('بحث', 'Search')}</span><span className="search-input"><Search size={16} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder={invoiceList ? t('جهة، رقم فاتورة أو منتج', 'Party, invoice number, or product') : t('جهة، وصف أو تصنيف', 'Party, description, or category')} /></span></label>
+      {kind !== 'purchase' && <label className="field"><span>{t('النطاق', 'Scope')}</span><select value={scope} onChange={e => setScope(e.target.value)}><option value="">{t('كل العمليات', 'All scopes')}</option><option value="business">{t('تجاري', 'Business')}</option><option value="personal">{t('شخصي', 'Personal')}</option></select></label>}
       <label className="field"><span>{t('الشهر', 'Month')}</span><input type="month" value={month} onChange={e => setMonth(e.target.value)} /></label>
       <label className="check-field"><input type="checkbox" checked={showVoided} onChange={e => setShowVoided(e.target.checked)} />{t('إظهار الحركات الملغاة', 'Show voided transactions')}</label>
     </div>
     <p className="result-count">{items.length} {t('عملية', 'transactions')}</p>
-    <EntryTable entries={items} lang={lang} onReceipt={onReceipt} edit={edit} />
+    <EntryTable entries={items} lang={lang} onReceipt={onReceipt} edit={edit} purchases={kind === 'purchase'} />
   </section>;
 }
 
@@ -166,7 +192,7 @@ export function Debts({ entries, lang, edit }: {
         <div className="debt-total"><small>{t('المتبقي', 'Outstanding')}</small><strong><bdi>{money(balance, e.currency, lang)}</bdi></strong></div>
         <div className="actions">
           {balance > 0 && <button className="btn primary" onClick={() => edit({ type: 'settlement', debt: e })}>{payable ? t('سداد دفعة', 'Record payment sent') : t('استلام دفعة', 'Record money received')}</button>}
-          <button className="btn secondary" onClick={() => edit(fromPurchase ? { type: 'entry', original: e } : { type: 'debt', original: e })}>
+          <button className="btn secondary" onClick={() => edit(fromPurchase ? { type: e.invoice_items ? 'purchase' : 'entry', original: e } : { type: 'debt', original: e })}>
             <Pencil size={15} />{fromPurchase ? t('تعديل الشراء', 'Edit purchase') : t('تعديل', 'Edit')}
           </button>
           {!fromPurchase && <button className="btn secondary debt-delete" disabled={payments.length > 0} onClick={() => edit({ type: 'void', original: e, debtItem: 'debt' })}><Trash2 size={15} />{t('حذف الدين', 'Delete debt')}</button>}
@@ -190,20 +216,6 @@ export function Debts({ entries, lang, edit }: {
   </>;
 }
 
-export function Inventory({ data, lang }: { data: Dataset; lang: Lang }) {
-  const t = translate(lang);
-  if (!data.products.length) return <section className="panel"><Empty>{t('أضف أول صنف ثم سجّل عملية شراء.', 'Add a product, then record its first purchase.')}</Empty></section>;
-  return <div className="cards">{data.products.map(p => {
-    const stock = inventory(data, p.id);
-    return <article className="panel record-card" key={p.id}>
-      <div className="card-heading"><span className="metric-icon green"><Package size={20} /></span><span className="tag">{p.category}</span></div>
-      <h2>{p.name}</h2><p>{p.expiry ? t('الصلاحية: ', 'Expiry: ') + p.expiry : p.unit}</p>
-      <div className="stock-grid">{[[t('المشتَرى', 'Purchased'), stock.purchased], [t('المحمّل', 'Loaded'), stock.loaded], [t('المتبقي', 'In stock'), stock.remaining]].map(([label, value]) =>
-        <div key={label}><small>{label}</small><strong>{value}</strong></div>)}</div>
-      <div className="split-line"><span>{t('متوسط تكلفة الوحدة', 'Avg. unit cost')}</span><bdi>{money(Math.round(stock.unitCost), 'SAR', lang)}</bdi></div>
-    </article>;
-  })}</div>;
-}
 
 export function Shipments({ data, lang, edit, advance, updating }: {
   data: Dataset; lang: Lang; edit: (editor: Editor) => void; advance: (container: Container) => void; updating: string;
