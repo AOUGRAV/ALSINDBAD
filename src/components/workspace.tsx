@@ -24,7 +24,7 @@ const languageKey = 'alsindbad.language';
 
 function Brand() {
   return <div className="brand">
-    <span className="brand-logo"><img src="/brand/alsindbad-logo.svg" width={2000} height={2003} alt="" /></span>
+    <span className="brand-logo"><img src="/brand/alsindbad-logo.svg" width={767} height={771} alt="" /></span>
     <div><strong>السندباد</strong><small>ALSINDBAD</small></div>
   </div>;
 }
