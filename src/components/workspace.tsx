@@ -23,7 +23,7 @@ const languageKey = 'alsindbad.language';
 
 function Brand() {
   return <div className="brand">
-    <span className="brand-logo"><img src="/brand/alsindbad-logo.jpg" width={640} height={641} alt="" /></span>
+    <span className="brand-logo"><img src="/brand/alsindbad-logo.svg" width={2000} height={2003} alt="" /></span>
     <div><strong>السندباد</strong><small>ALSINDBAD</small></div>
   </div>;
 }
@@ -156,7 +156,7 @@ export default function Workspace() {
   const languageButton = <button className="btn secondary lang-btn" onClick={switchLanguage}><Globe2 size={16} /><span>{t('English', 'العربية')}</span></button>;
 
   if (!authReady || !userId) return <main className="gate">
-    <div className="gate-top"><Brand />{languageButton}</div>
+    <div className="gate-top">{languageButton}</div>
     <div className="gate-grid">
       <section className="gate-art">
         <svg className="harbor-mark" viewBox="0 0 400 300" aria-hidden="true">
@@ -167,7 +167,7 @@ export default function Workspace() {
           <circle cx="251" cy="104" r="8" fill="currentColor" />
           <path d="M251 38v36m0 60v36m-66-66h36m60 0h36" stroke="currentColor" strokeOpacity=".5" />
         </svg>
-        <span className="eyebrow">JEDDAH OPERATIONS / 01</span>
+        <Brand />
         <div><h1>{t('عمليات جدة، في مكان واحد.', 'Jeddah operations, in one place.')}</h1><p>{t('الحسابات والمشتريات والمخزون والحاويات، من أول عملية إلى آخر شحنة.', 'Accounts, purchases, stock, and containers from the first transaction to the last shipment.')}</p></div>
         <div className="gate-location"><MapPin size={16} />{t('جدة · المملكة العربية السعودية', 'Jeddah · Saudi Arabia')}</div>
       </section>
