@@ -2,12 +2,12 @@
 
 مساحة العمل الخاصة بفرع جدة لإدارة الحسابات والمشتريات والمخزون والحاويات، بالعربية والإنجليزية وعلى الجوال والكمبيوتر. الواجهة مبنية بـ Next.js وTypeScript، وتُحفظ سجلات العمل والفواتير في Supabase.
 
-## النشر من GitHub على Cloudflare Pages
+## النشر من GitHub على Vercel
 
-1. من **Workers & Pages → Create → Pages → Import an existing Git repository** اربط مستودع [AOUGRAV/ALSINDBAD](https://github.com/AOUGRAV/ALSINDBAD).
-2. اضبط فرع الإنتاج على `main`، وأمر البناء على `pnpm build`، ومجلد النشر على `out`. اختر **Next.js (Static HTML Export)** إذا طلبت المنصة قالبًا.
-3. أضف المتغيرات من [.env.example](.env.example) إلى بيئة البناء **Production** قبل النشر. استخدم عنوان المشروع ومفتاحه **Publishable** من Supabase. اضبط `PNPM_VERSION` على `10.17.1`. يحدد ملف `.node-version` إصدار Node.js.
-4. بعد اكتمال البناء، استخدم رابط `pages.dev` الذي يظهر في المشروع. يُعاد بناء الموقع عند رفع تحديث إلى `main`.
+1. من **Add New → Project** استورد مستودع [AOUGRAV/ALSINDBAD](https://github.com/AOUGRAV/ALSINDBAD).
+2. اختر **Next.js** وNode.js 24، واضبط فرع النشر على `main`. يستخدم Vercel أمر البناء من `package.json` وإعدادات الاستجابة من `vercel.json`.
+3. أضف المتغيرات من [.env.example](.env.example) إلى بيئة **Production** قبل النشر. استخدم عنوان المشروع ومفتاحه **Publishable** من Supabase.
+4. بعد اكتمال البناء، افتح رابط `vercel.app` من لوحة المشروع. يُعاد بناء الموقع عند رفع تحديث إلى `main`.
 
 تقدّم الاستضافة ملفات الواجهة، ويتحقق Supabase من صلاحية الوصول إلى كل سجل ومرفق. لا يحتاج التطبيق إلى مفتاح `service_role`، وتُستبعد ملفات البيئة من Git.
 

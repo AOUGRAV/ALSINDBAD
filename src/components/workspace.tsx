@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { Anchor, ChartNoAxesCombined, CircleDollarSign, ClipboardList, Globe2, LayoutDashboard, LockKeyhole, LogOut, MapPin, Menu, Package, Plus, ReceiptText, RefreshCw, Ship, ShoppingBag, X } from 'lucide-react';
+import { ChartNoAxesCombined, CircleDollarSign, ClipboardList, Globe2, LayoutDashboard, LockKeyhole, LogOut, MapPin, Menu, Package, Plus, ReceiptText, RefreshCw, Ship, ShoppingBag, X } from 'lucide-react';
 import { activeEntries, emptyData, type Container, type Dataset, type Lang } from '@/lib/domain';
 import { advanceContainer, configured, downloadReceipt, loadData, reviseEntry, saveContainer, saveEntry, saveLoad, saveProduct, supabase, uploadReceipt } from '@/lib/storage';
 import { EditorDialog, errorMessage, translate, type Editor, type RecordChange } from './forms';
@@ -22,7 +22,10 @@ type Section = typeof navigation[number]['id'];
 const languageKey = 'alsindbad.language';
 
 function Brand() {
-  return <div className="brand"><span className="brand-mark"><Anchor size={25} strokeWidth={1.8} /></span><div><strong>السندباد</strong><small>ALSINDBAD</small></div></div>;
+  return <div className="brand">
+    <span className="brand-logo"><img src="/brand/alsindbad-logo.jpg" width={640} height={641} alt="" /></span>
+    <div><strong>السندباد</strong><small>ALSINDBAD</small></div>
+  </div>;
 }
 
 export default function Workspace() {
@@ -165,7 +168,7 @@ export default function Workspace() {
           <path d="M251 38v36m0 60v36m-66-66h36m60 0h36" stroke="currentColor" strokeOpacity=".5" />
         </svg>
         <span className="eyebrow">JEDDAH OPERATIONS / 01</span>
-        <div><span className="gate-anchor"><Anchor size={66} strokeWidth={1.2} /></span><h1>{t('عمليات جدة، في مكان واحد.', 'Jeddah operations, in one place.')}</h1><p>{t('الحسابات والمشتريات والمخزون والحاويات، من أول عملية إلى آخر شحنة.', 'Accounts, purchases, stock, and containers from the first transaction to the last shipment.')}</p></div>
+        <div><h1>{t('عمليات جدة، في مكان واحد.', 'Jeddah operations, in one place.')}</h1><p>{t('الحسابات والمشتريات والمخزون والحاويات، من أول عملية إلى آخر شحنة.', 'Accounts, purchases, stock, and containers from the first transaction to the last shipment.')}</p></div>
         <div className="gate-location"><MapPin size={16} />{t('جدة · المملكة العربية السعودية', 'Jeddah · Saudi Arabia')}</div>
       </section>
       <section className="gate-card">
