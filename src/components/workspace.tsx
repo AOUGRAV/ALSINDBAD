@@ -3,17 +3,19 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { ChartNoAxesCombined, CircleDollarSign, ClipboardList, Globe2, LayoutDashboard, LockKeyhole, LogOut, MapPin, Menu, Plus, ReceiptText, RefreshCw, Ship, ShoppingBag, X } from 'lucide-react';
 import { activeEntries, emptyData, type Container, type Dataset, type Lang } from '@/lib/domain';
-import { advanceContainer, configured, downloadReceipt, loadData, reviseEntry, saveContainer, saveEntry, saveLoad, supabase, uploadReceipt } from '@/lib/storage';
+import { advanceContainer, configured, downloadReceipt, loadData, reviseEntry, saveContainerManifest, saveEntry, saveLoad, supabase, uploadReceipt } from '@/lib/storage';
 import { EditorDialog, errorMessage, translate, type Editor, type RecordChange } from './forms';
 import { DebtEditorDialog } from './debt-editor';
 import { PurchaseEditorDialog } from './purchase-editor';
-import { Dashboard, Debts, Ledger, Shipments } from './views';
+import { ShipmentEditor } from './shipment-editor';
+import { Shipments } from './shipments';
+import { Dashboard, Debts, Ledger } from './views';
 import { Reports } from './reports';
 
 const navigation = [
   { id: 'overview', labels: ['نظرة عامة', 'Overview'], icon: LayoutDashboard },
   { id: 'ledger', labels: ['الحركات المالية', 'Transactions'], icon: ClipboardList },
-  { id: 'purchases', labels: ['المشتريات', 'Purchases'], icon: ShoppingBag },
+  { id: 'purchases', labels: ['المشتريات والمصاريف', 'Purchases and expenses'], icon: ShoppingBag },
   { id: 'debts', labels: ['الديون والسلف', 'Debts and advances'], icon: CircleDollarSign },
   { id: 'shipments', labels: ['الحاويات والشحن', 'Containers'], icon: Ship },
   { id: 'receipts', labels: ['الفواتير', 'Invoices'], icon: ReceiptText },
@@ -22,10 +24,10 @@ const navigation = [
 type Section = typeof navigation[number]['id'];
 const languageKey = 'alsindbad.language';
 
-function Brand() {
+function Brand({ logoOnly = false }: { logoOnly?: boolean }) {
   return <div className="brand">
-    <span className="brand-logo"><img src="/brand/alsindbad-logo.svg" width={767} height={771} alt="" /></span>
-    <div><strong lang="ar">السندباد</strong><small lang="en">ALSINDBAD</small></div>
+    <span className="brand-logo"><img src="/brand/alsindbad-logo.svg" width={767} height={771} alt={logoOnly ? 'ALSINDBAD' : ''} /></span>
+    {!logoOnly && <div><strong lang="ar">السندباد</strong><small lang="en">ALSINDBAD</small></div>}
   </div>;
 }
 
@@ -36,6 +38,8 @@ export default function Workspace() {
   const [data, setData] = useState<Dataset>(emptyData);
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [section, setSection] = useState<Section>('overview');
+  const [purchaseView, setPurchaseView] = useState<'purchase' | 'expense'>('purchase');
+  const [containerId, setContainerId] = useState<string | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [menu, setMenu] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -108,6 +112,8 @@ export default function Workspace() {
       setData(emptyData());
       setLoadedFor(null);
       setSection('overview');
+      setPurchaseView('purchase');
+      setContainerId(null);
       setEditor(null);
       setMenu(false);
       setNotice('');
@@ -128,8 +134,9 @@ export default function Workspace() {
       else await saveEntry(entry);
     } else if (change.type === 'void') {
       await reviseEntry(change.original, change.reason, null);
-    } else if (change.type === 'container') {
-      await saveContainer(change.value);
+    } else if (change.type === 'manifest') {
+      await saveContainerManifest(change.value, change.lines, change.expected);
+      setContainerId(change.value.id);
     } else {
       await saveLoad(change.value);
     }
@@ -157,7 +164,7 @@ export default function Workspace() {
   if (!authReady || !userId) return <main className="gate">
     <div className="gate-top">{languageButton}</div>
     <div className="gate-grid">
-      <div className="gate-art"><Brand /></div>
+      <div className="gate-art"><Brand logoOnly /></div>
       <section className="gate-card">
         <span className="metric-icon green"><LockKeyhole size={20} /></span>
         <h1>{!authReady ? t('جارٍ التحميل…', 'Loading…') : configured ? t('تسجيل الدخول', 'Sign in') : t('مساحة عمل خاصة', 'Private workspace')}</h1>
@@ -177,11 +184,13 @@ export default function Workspace() {
   const entries = [...data.entries].sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at));
   const currentEntries = activeEntries(entries);
   const ready = loadedFor === userId;
-  const action = section === 'shipments' ? t('حاوية جديدة', 'New container') :
+  const expenseView = section === 'purchases' && purchaseView === 'expense';
+  const action = section === 'shipments' ? t('حاوية جديدة', 'New container') : expenseView ? t('إضافة مصروف', 'Add expense') :
     section === 'purchases' || section === 'receipts' ? t('إضافة فاتورة', 'Add invoice') : section === 'debts' ? t('إضافة دين', 'Add debt') : t('عملية جديدة', 'New transaction');
   function openEditor() {
-    if (section === 'shipments') setEditor({ type: 'container' });
+    if (section === 'shipments') setEditor({ type: 'manifest' });
     else if (section === 'debts') setEditor({ type: 'debt' });
+    else if (expenseView) setEditor({ type: 'entry', kind: 'expense', expenseOnly: true });
     else if (section === 'purchases' || section === 'receipts') setEditor({ type: 'purchase' });
     else setEditor({ type: 'entry', kind: 'expense' });
   }
@@ -211,15 +220,24 @@ export default function Workspace() {
         {!ready && !error && <p role="status" className="panel empty">{t('جارٍ تحميل السجلات…', 'Loading records…')}</p>}
         {ready && <>
           {section === 'overview' && <Dashboard data={data} entries={currentEntries} lang={lang} navigate={navigate} onReceipt={receipt} edit={setEditor} />}
-          {(section === 'ledger' || section === 'purchases' || section === 'receipts') && <Ledger key={section} entries={entries} lang={lang} kind={section === 'purchases' ? 'purchase' : section === 'receipts' ? 'receipts' : undefined} onReceipt={receipt} edit={setEditor} />}
+          {(section === 'ledger' || section === 'receipts') && <Ledger key={section} entries={entries} lang={lang} kind={section === 'receipts' ? 'receipts' : undefined} onReceipt={receipt} edit={setEditor} />}
+          {section === 'purchases' && <>
+            <div className="actions purchase-switch" role="group" aria-label={t('المشتريات والمصاريف', 'Purchases and expenses')}>
+              <button className="btn secondary" aria-pressed={purchaseView === 'purchase'} onClick={() => setPurchaseView('purchase')}>{t('المشتريات', 'Purchases')}</button>
+              <button className="btn secondary" aria-pressed={purchaseView === 'expense'} onClick={() => setPurchaseView('expense')}>{t('المصاريف', 'Expenses')}</button>
+            </div>
+            <Ledger key={purchaseView} entries={entries} lang={lang} kind={purchaseView} onReceipt={receipt} edit={setEditor} />
+          </>}
           {section === 'debts' && <Debts entries={currentEntries} lang={lang} edit={setEditor} />}
-          {section === 'shipments' && <Shipments data={data} lang={lang} edit={setEditor} advance={changeStatus} updating={updating} />}
+          {section === 'shipments' && <Shipments data={data} lang={lang} selected={containerId} select={setContainerId} edit={setEditor} advance={changeStatus} updating={updating} onReceipt={receipt} />}
           {section === 'reports' && <Reports data={data} lang={lang} />}
         </>}
       </main>
     </div>
     {notice && <div className="toast no-print" role="status">{notice}</div>}
-    {editor && ready && (editor.type === 'purchase'
+    {editor && ready && (editor.type === 'manifest'
+      ? <ShipmentEditor container={editor.container} data={data} lang={lang} close={() => setEditor(null)} save={record} />
+      : editor.type === 'purchase'
       ? <PurchaseEditorDialog editor={editor} data={data} lang={lang} close={() => setEditor(null)} save={record} />
       : editor.type === 'debt' || editor.type === 'settlement'
       ? <DebtEditorDialog editor={editor} data={data} lang={lang} close={() => setEditor(null)} save={record} />

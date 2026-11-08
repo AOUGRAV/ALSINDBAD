@@ -16,9 +16,10 @@ export const reportKinds: Record<ReportKind, [string, string]> = {
 };
 export function containerCost(data: Dataset, id: string) {
   const lines = data.loads.filter(load => load.container_id === id);
-  const goods = lines.reduce((sum, load) => sum + load.cost_sar, 0);
+  const invoiceLines = data.invoice_loads.filter(load => load.container_id === id);
+  const goods = [...lines, ...invoiceLines].reduce((sum, load) => sum + load.cost_sar, 0);
   const shipping = data.entries.filter(e => !e.voided_at && e.container_id === id).reduce((sum, e) => sum + baseAmount(e), 0);
-  return { lines, goods, shipping, total: goods + shipping };
+  return { lines, invoiceLines, goods, shipping, total: goods + shipping };
 }
 
 async function downloadExcel(report: Report, title: string, range: string, lang: Lang) {

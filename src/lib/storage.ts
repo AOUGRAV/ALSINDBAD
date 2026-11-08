@@ -1,9 +1,15 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { type Dataset, type Entry, type Container, type LoadDraft } from './domain';
+import { type Dataset, type Entry, type Container, type ContainerDraft, type InvoiceLoadDraft, type LoadDraft } from './domain';
 import { receiptExtension } from './receipt';
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 let client: SupabaseClient | null = null;
+const unspecifiedPayee = '—';
+
+// Older ledger records require a stored party even for expenses with no payee.
+const entryPayload = (entry: Entry) => entry.kind === 'expense' && !entry.party ? { ...entry, party: unspecifiedPayee } : entry;
+const readEntry = (entry: Entry) => entry.kind === 'expense' && entry.party === unspecifiedPayee ? { ...entry, party: '' } : entry;
+
 export const configured = Boolean(url && key);
 export function supabase() {
   if (!url || !key) throw new Error('Supabase is not configured');
@@ -13,23 +19,22 @@ export async function loadData(): Promise<Dataset> {
   const { data, error } = await supabase().rpc('workspace_snapshot');
   if (error) throw error;
   if (!data) throw new Error('الحساب غير مصرّح له بدخول مساحة العمل / Account is not authorized');
-  return data as Dataset;
+  const snapshot = data as Dataset;
+  return { ...snapshot, entries: snapshot.entries.map(readEntry),
+    history: snapshot.history.map(item => ({ ...item, previous: readEntry(item.previous) })) };
 }
 export async function saveEntry(entry: Entry) {
-  const { error } = await supabase().rpc('record_entry', { payload: entry });
+  const { error } = await supabase().rpc('record_entry', { payload: entryPayload(entry) });
   if (error) throw error;
 }
 export async function reviseEntry(original: Entry, reason: string, replacement: Entry | null) {
   const { error } = await supabase().rpc('revise_entry', {
-    target: original.id, expected: original.revision, reason, payload: replacement,
+    target: original.id, expected: original.revision, reason, payload: replacement ? entryPayload(replacement) : null,
   });
   if (error) throw error;
 }
-export async function saveContainer(container: Container) {
-  const { data: { user } } = await supabase().auth.getUser();
-  if (!user) throw new Error('انتهت الجلسة / Session expired');
-  const { id, name, destination, booking } = container;
-  const { error } = await supabase().from('containers').insert({ id, owner_id: user.id, name, destination, booking });
+export async function saveContainerManifest(container: ContainerDraft, lines: InvoiceLoadDraft[], expected?: number) {
+  const { error } = await supabase().rpc('save_container_manifest', { payload: container, lines, expected: expected ?? null });
   if (error) throw error;
 }
 export async function saveLoad(load: LoadDraft) {

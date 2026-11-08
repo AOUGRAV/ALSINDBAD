@@ -1,11 +1,10 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import { ArrowDownLeft, ArrowUpRight, Ban, Box, CircleDollarSign, Download, FileText, History, Pencil, Plus, ReceiptText, Search, Ship, ShoppingBag, Trash2, Wallet } from 'lucide-react';
-import { baseAmount, cashAmount, currencies, debtBalance, debtPrincipal, debtSide, kindLabels, money, summary, type Container, type Dataset, type DebtDirection, type Entry, type Kind, type Lang } from '@/lib/domain';
+import { ArrowDownLeft, ArrowUpRight, Ban, Box, CircleDollarSign, Download, FileText, History, Pencil, ReceiptText, Search, Ship, ShoppingBag, Trash2, Wallet } from 'lucide-react';
+import { baseAmount, cashAmount, currencies, debtBalance, debtPrincipal, debtSide, kindLabels, money, summary, type Dataset, type DebtDirection, type Entry, type Kind, type Lang } from '@/lib/domain';
 import { invoiceTotals, invoiceVatPercent } from '@/lib/purchases';
 import { type Editor, translate } from './forms';
-import { containerCost } from './reports';
 
 const entryIcon = { funding: ArrowDownLeft, borrow: ArrowDownLeft, collect: ArrowDownLeft, lend: ArrowUpRight,
   expense: ReceiptText, asset: Box, purchase: ShoppingBag, repay: ArrowUpRight };
@@ -31,24 +30,24 @@ function InvoiceDetail({ entry, lang }: { entry: Entry; lang: Lang }) {
 export function Empty({ children }: { children: ReactNode }) {
   return <div className="empty"><FileText size={23} /><p>{children}</p></div>;
 }
-export function EntryTable({ entries, lang, onReceipt, edit, compact = false, purchases = false }: {
-  entries: Entry[]; lang: Lang; onReceipt: (path: string) => void; edit?: (editor: Editor) => void; compact?: boolean; purchases?: boolean;
+export function EntryTable({ entries, lang, onReceipt, edit, compact = false, purchases = false, expenses = false }: {
+  entries: Entry[]; lang: Lang; onReceipt: (path: string) => void; edit?: (editor: Editor) => void; compact?: boolean; purchases?: boolean; expenses?: boolean;
 }) {
   const t = translate(lang);
   if (!entries.length) return <Empty>{t('لا توجد عمليات لعرضها.', 'No transactions to display.')}</Empty>;
   return <div className="table-scroll" tabIndex={0} aria-label={t('الحركات المالية', 'Transactions')}><table className={'entries-table' + (compact ? ' compact' : '')}>
-    <thead><tr><th scope="col">{purchases ? t('الفاتورة', 'Invoice') : t('العملية', 'Transaction')}</th><th scope="col">{t('التاريخ', 'Date')}</th>
+    <thead><tr><th scope="col">{purchases ? t('الفاتورة', 'Invoice') : expenses ? t('المصروف', 'Expense') : t('العملية', 'Transaction')}</th><th scope="col">{t('التاريخ', 'Date')}</th>
       {!compact && !purchases && <th scope="col">{t('التصنيف', 'Category')}</th>}<th scope="col">{purchases ? t('إجمالي الفاتورة', 'Invoice total') : t('المبلغ', 'Amount')}</th>
       {!compact && !purchases && <th scope="col">{t('بالريال', 'In SAR')}</th>}
       {!compact && <th scope="col">{t('المرفق', 'Attachment')}</th>}
       {edit && <th scope="col">{t('إدارة الحركة', 'Manage transaction')}</th>}</tr></thead>
     <tbody>{entries.map(e => {
       const Icon = entryIcon[e.kind];
-      const editLabel = e.invoice_items ? t('تعديل الفاتورة', 'Edit invoice') : t('تصحيح الحركة', 'Correct transaction');
+      const editLabel = e.invoice_items ? t('تعديل الفاتورة', 'Edit invoice') : e.kind === 'expense' ? t('تعديل المصروف', 'Edit expense') : t('تصحيح الحركة', 'Correct transaction');
       return <tr key={e.id} className={e.voided_at ? 'voided-row' : undefined}>
         <td><div className="entry-name"><span className={'entry-icon ' + (cashAmount(e) > 0 ? 'positive' : 'neutral')}><Icon size={16} /></span>
           <div><strong>{e.invoice_number ? <>{t('فاتورة شراء', 'Purchase invoice')} <bdi>{e.invoice_number}</bdi></> : e.description}</strong>
-            <small>{e.party}{!e.invoice_number && <> · {t(...kindLabels[e.kind])}</>}{e.opening && <> · {t('رصيد افتتاحي', 'Opening balance')}</>}</small>
+            {(e.party || !expenses) && <small>{e.party}{!e.invoice_number && !expenses && <>{e.party && ' · '}{t(...kindLabels[e.kind])}</>}{e.opening && <> · {t('رصيد افتتاحي', 'Opening balance')}</>}</small>}
             {!compact && <InvoiceDetail entry={e} lang={lang} />}
             {e.voided_at && <span className="tag void-tag">{t('ملغاة', 'Voided')}</span>}</div></div></td>
         <td data-label={t('التاريخ', 'Date')}><bdi className="muted">{e.date}</bdi></td>
@@ -57,7 +56,7 @@ export function EntryTable({ entries, lang, onReceipt, edit, compact = false, pu
         {!compact && !purchases && <td data-label={t('بالريال', 'In SAR')} className="number"><bdi>{money(baseAmount(e), 'SAR', lang)}</bdi>{e.currency !== 'SAR' && <small className="table-sub"><bdi>× {e.rate}</bdi></small>}</td>}
         {!compact && <td data-label={t('المرفق', 'Attachment')}>{e.receipt_path ? <button className="icon-btn" onClick={() => onReceipt(e.receipt_path!)} aria-label={t('تنزيل المرفق', 'Download attachment')}><Download size={16} /></button> : '—'}</td>}
         {edit && <td className="entry-actions" data-label={t('إدارة الحركة', 'Manage transaction')}><div className="actions">
-          {!e.voided_at && <><button className={purchases ? 'btn secondary' : 'icon-btn'} onClick={() => edit({ type: e.invoice_items ? 'purchase' : 'entry', original: e })} aria-label={editLabel} title={editLabel}><Pencil size={16} />{purchases && t('تعديل', 'Edit')}</button>
+          {!e.voided_at && <><button className={purchases || expenses ? 'btn secondary' : 'icon-btn'} onClick={() => edit({ type: e.invoice_items ? 'purchase' : 'entry', original: e })} aria-label={editLabel} title={editLabel}><Pencil size={16} />{(purchases || expenses) && t('تعديل', 'Edit')}</button>
             <button className="icon-btn" onClick={() => edit({ type: 'void', original: e })} aria-label={t('إلغاء الحركة', 'Void transaction')} title={t('إلغاء الحركة', 'Void transaction')}><Ban size={16} /></button></>}
           {e.revision > 1 && <button className="icon-btn" onClick={() => edit({ type: 'history', original: e })} aria-label={t('سجل التغييرات', 'Change history')} title={t('سجل التغييرات', 'Change history')}><History size={16} /></button>}
         </div></td>}
@@ -144,7 +143,7 @@ export function Ledger({ entries, lang, kind, onReceipt, edit }: {
       <label className="check-field"><input type="checkbox" checked={showVoided} onChange={e => setShowVoided(e.target.checked)} />{t('إظهار الحركات الملغاة', 'Show voided transactions')}</label>
     </div>
     <p className="result-count">{items.length} {t('عملية', 'transactions')}</p>
-    <EntryTable entries={items} lang={lang} onReceipt={onReceipt} edit={edit} purchases={kind === 'purchase'} />
+    <EntryTable entries={items} lang={lang} onReceipt={onReceipt} edit={edit} purchases={kind === 'purchase'} expenses={kind === 'expense'} />
   </section>;
 }
 
@@ -211,32 +210,4 @@ export function Debts({ entries, lang, edit }: {
       </article>;
     })}</div>
   </>;
-}
-
-
-export function Shipments({ data, lang, edit, advance, updating }: {
-  data: Dataset; lang: Lang; edit: (editor: Editor) => void; advance: (container: Container) => void; updating: string;
-}) {
-  const t = translate(lang);
-  const status = { preparing: t('قيد التجهيز', 'Preparing'), shipped: t('تم الشحن', 'Shipped'), arrived: t('وصلت', 'Arrived') };
-  if (!data.containers.length) return <section className="panel"><Empty>{t('لا توجد حاويات.', 'No containers.')}</Empty></section>;
-  return <div className="cards">{data.containers.map(c => {
-    const cost = containerCost(data, c.id);
-    return <article className="panel record-card" key={c.id}>
-      <div className="card-heading"><span className="metric-icon blue"><Ship size={21} /></span><span className="tag">{status[c.status]}</span></div>
-      <h2><bdi>{c.name}</bdi></h2><p>{c.destination}{c.booking && <> · <bdi>{c.booking}</bdi></>}</p>
-      <div className="split-line"><span>{t('تكلفة البضاعة عند التحميل', 'Stock cost at loading')}</span><bdi>{money(cost.goods, 'SAR', lang)}</bdi></div>
-      <div className="split-line"><span>{t('النقل والشحن', 'Freight and shipping')}</span><bdi>{money(cost.shipping, 'SAR', lang)}</bdi></div>
-      <div className="split-line total-line"><strong>{t('إجمالي التكلفة المسجلة', 'Total recorded cost')}</strong><strong><bdi>{money(cost.total, 'SAR', lang)}</bdi></strong></div>
-      {cost.lines.length > 0 && <details className="detail"><summary>{t('البضائع المحملة', 'Loaded stock')} · {cost.lines.length}</summary>{cost.lines.map(line => {
-        const product = data.products.find(p => p.id === line.product_id);
-        return <div className="split-line" key={line.id}><span>{product?.name}</span><span>{line.quantity} {product?.unit}</span></div>;
-      })}</details>}
-      <div className="actions">
-        {c.status === 'preparing' && <button className="btn secondary" onClick={() => edit({ type: 'load', container: c })}><Plus size={15} />{t('تحميل بضاعة', 'Load stock')}</button>}
-        <button className="btn secondary" onClick={() => edit({ type: 'entry', kind: 'expense', container: c })}>{t('إضافة تكلفة', 'Add cost')}</button>
-        {c.status !== 'arrived' && <button className="btn secondary" disabled={Boolean(updating) || (c.status === 'preparing' && !cost.lines.length)} onClick={() => advance(c)}>{updating === c.id ? t('جارٍ التحديث…', 'Updating…') : c.status === 'preparing' ? t('تسجيل الشحن', 'Mark shipped') : t('تسجيل الوصول', 'Mark arrived')}</button>}
-      </div>
-    </article>;
-  })}</div>;
 }

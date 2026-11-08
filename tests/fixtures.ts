@@ -10,7 +10,7 @@ export function sampleData(): Dataset {
   });
   return {
     products: [product(1, 'زيت زيتون · كرتون 12 عبوة', 'مواد غذائية', 'كرتون'), product(2, 'عطر عود · عبوة 100 مل', 'عطور', 'كرتون'), product(3, 'فحم طبيعي · كيس 10 كجم', 'فحم', 'كيس')],
-    containers: [{ id: id(4), name: 'JED–001', destination: 'المملكة المتحدة', booking: 'BK-DEMO-01', status: 'preparing', created_at }],
+    containers: [{ id: id(4), name: 'JED–001', destination: 'المملكة المتحدة', booking: 'BK-DEMO-01', status: 'preparing', created_at, manifest_revision: 0 }],
     entries: [
       e(11, { kind: 'funding', party: 'المالك (تجريبي)', description: 'تمويل عمليات جدة', amount: 15000000, paid: 15000000, category: 'رأس المال' }),
       e(12, { kind: 'borrow', party: 'مموّل تجريبي', description: 'تمويل مؤقت لشراء البضائع', currency: 'USD', rate: 3.75, amount: 1000000, paid: 1000000, category: 'تمويل مؤقت' }),
@@ -22,6 +22,7 @@ export function sampleData(): Dataset {
       e(18, { kind: 'lend', party: 'صديق تجريبي', description: 'سلفة شخصية مستردة', scope: 'personal', amount: 500000, paid: 500000, category: 'سلف شخصية' }),
     ],
     loads: [{ id: id(20), product_id: id(1), container_id: id(4), quantity: 80, cost_sar: 1920000, created_at }, { id: id(21), product_id: id(3), container_id: id(4), quantity: 150, cost_sar: 975000, created_at }],
+    invoice_loads: [],
     history: [],
   };
 }

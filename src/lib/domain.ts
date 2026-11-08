@@ -13,7 +13,7 @@ export const kindLabels: Record<Kind, [string, string]> = {
   collect: ['تحصيل دين', 'Debt collection'], repay: ['سداد التزام', 'Debt repayment'],
 };
 export const entrySchema = z.object({
-  id: z.uuid(), date: z.iso.date(), kind: z.enum(kinds), party: z.string().trim().min(1).max(120),
+  id: z.uuid(), date: z.iso.date(), kind: z.enum(kinds), party: z.string().trim().max(120),
   description: z.string().trim().min(1).max(500), category: z.string().trim().min(1).max(80),
   scope: z.enum(['business', 'personal']), currency: z.enum(currencies),
   amount: z.number().int().positive().max(100_000_000_000),
@@ -27,6 +27,7 @@ export const entrySchema = z.object({
   opening: z.boolean().default(false), revision: z.number().int().positive().default(1), voided_at: z.string().nullable().default(null),
 }).superRefine((v, ctx) => {
   const issue = (message: string) => ctx.addIssue({ code: 'custom', message });
+  if (v.kind !== 'expense' && !v.party) issue('اسم الجهة مطلوب / Party is required');
   if (v.paid > v.amount) issue('المدفوع أكبر من الإجمالي / Paid exceeds total');
   if (v.kind !== 'purchase' && v.paid !== v.amount) issue('يلزم دفع كامل المبلغ / Full payment required');
   if (v.currency === 'SAR' && v.rate !== 1) issue('سعر الريال يجب أن يكون 1 / SAR rate must be 1');
@@ -42,12 +43,15 @@ export const entrySchema = z.object({
 });
 export type Entry = z.infer<typeof entrySchema>;
 export type Product = { id: string; name: string; category: string; unit: string; expiry: string | null; created_at: string };
-export type Container = { id: string; name: string; destination: string; booking: string; status: 'preparing' | 'shipped' | 'arrived'; created_at: string };
+export type Container = { id: string; name: string; destination: string; booking: string; status: 'preparing' | 'shipped' | 'arrived'; created_at: string; manifest_revision: number };
+export type ContainerDraft = Pick<Container, 'id' | 'name' | 'destination' | 'booking'>;
+export type InvoiceLoadDraft = { entry_id: string; item_index: number; quantity: number };
+export type InvoiceLoad = InvoiceLoadDraft & { container_id: string; cost_sar: number };
 export type LoadDraft = { id: string; container_id: string; product_id: string; quantity: number; created_at: string };
 export type Load = LoadDraft & { cost_sar: number };
 export type EntryHistory = { entry_id: string; revision: number; action: 'correct' | 'void'; reason: string; previous: Entry; recorded_at: string };
-export type Dataset = { entries: Entry[]; products: Product[]; containers: Container[]; loads: Load[]; history: EntryHistory[] };
-export const emptyData = (): Dataset => ({ entries: [], products: [], containers: [], loads: [], history: [] });
+export type Dataset = { entries: Entry[]; products: Product[]; containers: Container[]; loads: Load[]; invoice_loads: InvoiceLoad[]; history: EntryHistory[] };
+export const emptyData = (): Dataset => ({ entries: [], products: [], containers: [], loads: [], invoice_loads: [], history: [] });
 export const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
 export const minor = (value: string | number) => Math.round(Number(value) * 100);
 export function toSar(amount: number, rate: number) {

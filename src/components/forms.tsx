@@ -2,21 +2,21 @@
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Check, Paperclip, ScanText, X } from 'lucide-react';
-import { currencies, kinds, kindLabels, debtBalance, inventory, minor, money, today, toSar, validateEntry, validateLoad, type Container, type Currency, type Dataset, type Entry, type Kind, type Lang, type LoadDraft } from '@/lib/domain';
+import { currencies, kinds, kindLabels, debtBalance, inventory, minor, money, today, toSar, validateEntry, validateLoad, type Container, type ContainerDraft, type Currency, type Dataset, type Entry, type InvoiceLoadDraft, type Kind, type Lang, type LoadDraft } from '@/lib/domain';
 import { receiptAccept, receiptExtension } from '@/lib/receipt';
 
 export const translate = (lang: Lang) => (ar: string, en: string) => lang === 'ar' ? ar : en;
 export const errorMessage = (error: unknown) => error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error);
 const field = (form: FormData, key: string) => String(form.get(key) ?? '').trim();
 const newRecord = () => ({ id: crypto.randomUUID(), created_at: new Date().toISOString() });
-export type RecordEditor = { type: 'entry'; kind?: Kind; container?: Container; original?: Entry } |
-  { type: 'container' } | { type: 'load'; container: Container } |
+export type RecordEditor = { type: 'entry'; kind?: Kind; container?: Container; original?: Entry; expenseOnly?: boolean } |
+  { type: 'load'; container: Container } |
   { type: 'history'; original: Entry } | { type: 'void'; original: Entry; debtItem?: 'debt' | 'payment' };
 export type DebtEditor = { type: 'debt'; original?: Entry } | { type: 'settlement'; debt: Entry; original?: Entry };
 export type PurchaseEditor = { type: 'purchase'; original?: Entry };
-export type Editor = RecordEditor | DebtEditor | PurchaseEditor;
+export type Editor = RecordEditor | DebtEditor | PurchaseEditor | { type: 'manifest'; container?: Container };
 export type RecordChange = { type: 'entry'; value: Entry; receipt?: File; original?: Entry; reason: string } |
-  { type: 'container'; value: Container } | { type: 'load'; value: LoadDraft } |
+  { type: 'manifest'; value: ContainerDraft; lines: InvoiceLoadDraft[]; expected?: number } | { type: 'load'; value: LoadDraft } |
   { type: 'void'; original: Entry; reason: string };
 type Scan = Awaited<ReturnType<typeof import('@/lib/scan-invoice').scanInvoice>>;
 
@@ -57,9 +57,10 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
     return () => { node?.close(); };
   }, []);
 
-  const title = editor.type === 'container' ?
-    t('حاوية جديدة', 'New container') : editor.type === 'load' ? t('تحميل بضاعة', 'Load stock') :
+  const expenseOnly = Boolean(entry?.expenseOnly || original?.kind === 'expense');
+  const title = editor.type === 'load' ? t('تحميل أصناف سابقة', 'Load legacy stock') :
     editor.type === 'void' ? (debtItem ? deleteTitle : t('إلغاء الحركة', 'Void transaction')) : editor.type === 'history' ? t('سجل التغييرات', 'Change history') :
+    expenseOnly ? (original ? t('تعديل المصروف', 'Edit expense') : t('إضافة مصروف', 'Add expense')) :
     original ? t('تصحيح الحركة', 'Correct transaction') : debt ? t('تسجيل دفعة', 'Record settlement') : t('عملية جديدة', 'New transaction');
   const unavailable = busy || reading;
   const remaining = debt ? debtBalance(debt, data.entries.filter(row => row.id !== original?.id)) : 0;
@@ -118,11 +119,6 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
         if (original && !reason) throw new Error(t('اكتب سبب التصحيح.', 'Enter the correction reason.'));
         if (file) receiptExtension(file);
         await save({ type: 'entry', value: record, receipt: file ?? undefined, original, reason });
-      } else if (editor.type === 'container') {
-        const name = field(form, 'name'), destination = field(form, 'destination');
-        if (!name || !destination) throw new Error(t('أكمل بيانات الحاوية', 'Complete the container details'));
-        if (data.containers.some(c => c.name.toLowerCase() === name.toLowerCase())) throw new Error(t('رقم الحاوية مسجل مسبقًا', 'Container already exists'));
-        await save({ type: 'container', value: { ...identity, name, destination, booking: field(form, 'booking'), status: 'preparing' } });
       } else if (editor.type === 'load') {
         await save({ type: 'load', value: validateLoad({ ...identity, container_id: editor.container.id,
           product_id: field(form, 'product'), quantity: Number(field(form, 'quantity')) }, data) });
@@ -138,6 +134,39 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
       setBusy(false);
     }
   }
+
+  const categories = [...new Set([
+    kind === 'expense' ? t('نقل كفالة', 'Sponsorship transfer') : t('تمويل مؤقت', 'Temporary funding'),
+    t('إيجار سيارة', 'Vehicle rental'), t('وقود', 'Fuel'), t('سكن ومكتب', 'Accommodation and office'),
+    t('إكراميات', 'Tips'), t('أكل وشرب', 'Food and drink'), t('نقل وشحن', 'Freight'), t('معدات', 'Equipment'),
+    ...data.entries.filter(e => kind !== 'expense' || e.kind === 'expense').map(e => e.category),
+  ])];
+  const entryOptions = entry && <>
+    {expenseOnly && <Field title={t('الجهة (اختياري)', 'Payee (optional)')} wide><input name="party" value={party} onChange={event => setParty(event.target.value)} maxLength={120} /></Field>}
+    <Field title={t('العملة', 'Currency')}><select value={currency} onChange={e => setCurrency(e.target.value as Currency)} disabled={Boolean(debt)}>{currencies.map(c => <option key={c}>{c}</option>)}</select></Field>
+    {currency !== 'SAR' && <Field title={t('سعر صرف 1', 'SAR per 1') + ' ' + currency + (lang === 'ar' ? ' بالريال' : '')}><input type="number" inputMode="decimal" min="0.000001" max="10000" step="0.000001" value={rate} onChange={e => setRate(e.target.value)} placeholder={debt ? String(debt.rate) : undefined} required /></Field>}
+    <Field title={t('طريقة الدفع', 'Payment method')}><select name="method" defaultValue={original?.method ?? (expenseOnly ? 'cash' : 'bank')}><option value="bank">{t('تحويل بنكي', 'Bank transfer')}</option><option value="cash">{t('نقدًا', 'Cash')}</option><option value="card">{t('بطاقة', 'Card')}</option></select></Field>
+    {kind === 'expense' && scope === 'business' && data.containers.length > 0 && <Field title={t('ربط بحاوية (اختياري)', 'Link to container (optional)')}><select name="container" defaultValue={original?.container_id ?? entry?.container?.id ?? ''}><option value="">{t('بدون حاوية', 'No container')}</option>{data.containers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>}
+    {currency !== 'SAR' && Number(amount) > 0 && Number(amount) <= 1000000000 && Number(rate) > 0 && Number(rate) <= 10000 && <p className="form-note field-wide">{t('ما يعادله بالريال', 'SAR equivalent')}: <bdi>{money(toSar(minor(amount), Number(rate)), 'SAR', lang)}</bdi></p>}
+    <Field title={original?.receipt_path ? t('استبدال الفاتورة المرفقة (اختياري)', 'Replace attached receipt (optional)') : t('فاتورة أو إيصال (اختياري)', 'Invoice or receipt (optional)')} wide>
+      <div className="file-field"><Paperclip size={16} /><input name="receipt" type="file" accept={receiptAccept} disabled={unavailable} onChange={event => {
+        setFile(event.target.files?.[0] ?? null);
+        setScan(null);
+        setScanMessage('');
+      }} /></div>
+    </Field>
+    {file && !debt && <div className="field-wide receipt-scan">
+      <button type="button" className="btn secondary" disabled={unavailable} onClick={readInvoice}><ScanText size={17} />{reading ? t('جارٍ قراءة الفاتورة…', 'Reading invoice…') : t('قراءة الفاتورة', 'Read invoice')}</button>
+      {reading && <progress max={100} value={progress} aria-label={t('تقدم قراءة الفاتورة', 'Invoice scanning progress')} />}
+      {scan && Object.values(scan.fields).some(Boolean) && <div className="scan-result">
+        <strong>{t('البيانات المقترحة', 'Suggested fields')}</strong>
+        <p>{[scan.fields.supplier, scan.fields.number, scan.fields.date, [scan.fields.total, scan.fields.currency].filter(Boolean).join(' ')].filter(Boolean).join(' · ')}</p>
+        <button type="button" className="btn secondary" disabled={unavailable} onClick={applyInvoice}>{t('استخدام البيانات المقترحة', 'Apply suggestions')}</button>
+      </div>}
+      {scan?.text && <details className="detail"><summary>{t('النص المقروء', 'Recognized text')} · {scan.pagesRead}/{scan.pageCount}</summary><pre dir="auto">{scan.text}</pre></details>}
+      {scanMessage && <p role="status">{scanMessage}</p>}
+    </div>}
+  </>;
 
   return <dialog ref={dialog} className="editor" aria-labelledby="editor-title" onCancel={event => { event.preventDefault(); if (!unavailable) close(); }}>
     <header className="dialog-head">
@@ -159,7 +188,7 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
     </div> : <form onSubmit={submit}>
       <div className="form-grid">
         {editor.type === 'entry' && <>
-          {debt ? <p className="field-wide form-note">{debt.party} · {t('المتاح لهذه الدفعة', 'Available for this payment')}: <bdi>{money(remaining, debt.currency, lang)}</bdi></p> :
+          {debt ? <p className="field-wide form-note">{debt.party} · {t('المتاح لهذه الدفعة', 'Available for this payment')}: <bdi>{money(remaining, debt.currency, lang)}</bdi></p> : !expenseOnly &&
             <Field title={t('نوع العملية', 'Transaction type')}><select value={kind} onChange={event => {
               const selected = event.target.value as Kind;
               if (selected === 'purchase' && !original) openPurchase();
@@ -168,48 +197,26 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
               {kinds.filter(k => k !== 'collect' && k !== 'repay').map(k => <option key={k} value={k}>{t(...kindLabels[k])}</option>)}
             </select></Field>}
           <Field title={t('التاريخ', 'Date')}><input type="date" name="date" value={date} onChange={event => setDate(event.target.value)} min={debt?.date} required /></Field>
-          {!debt && <Field title={t('المورد أو الجهة', 'Supplier or party')}><input name="party" value={party} onChange={event => setParty(event.target.value)} maxLength={120} placeholder={t('اسم الجهة', 'Party name')} required /></Field>}
-          {!debt && <Field title={t('نطاق العملية', 'Scope')}><select value={scope} onChange={e => setScope(e.target.value as Entry['scope'])}><option value="business">{t('تجاري', 'Business')}</option><option value="personal">{t('شخصي', 'Personal')}</option></select></Field>}
-          <Field title={t('الوصف', 'Description')} wide><input name="description" value={description} onChange={event => setDescription(event.target.value)} maxLength={500} placeholder={t('مثال: شراء بضاعة للحاوية الأولى', 'e.g. Stock for the first shipment')} required /></Field>
+          {!debt && !expenseOnly && <Field title={t('المورد أو الجهة', 'Supplier or party')}><input name="party" value={party} onChange={event => setParty(event.target.value)} maxLength={120} required={kind !== 'expense'} /></Field>}
+          {!debt && <Field title={expenseOnly ? t('شخصي أو تجاري', 'Personal or business') : t('نطاق العملية', 'Scope')}><select value={scope} onChange={e => setScope(e.target.value as Entry['scope'])}><option value="business">{t('تجاري', 'Business')}</option><option value="personal">{t('شخصي', 'Personal')}</option></select></Field>}
+          {!expenseOnly && <Field title={t('الوصف', 'Description')} wide><input name="description" value={description} onChange={event => setDescription(event.target.value)} maxLength={500} required /></Field>}
           {(kind === 'borrow' || kind === 'lend') && <label className="field-wide check-field"><input type="checkbox" name="opening" defaultChecked={original?.opening} />{t('دين سابق قبل بدء التسجيل (دون حركة نقدية)', 'Opening debt (no new cash movement)')}</label>}
           {kind === 'purchase' && <>
             <Field title={t('الصنف', 'Product')}><select name="product" required defaultValue={original?.product_id ?? ''}><option value="" disabled>{t('اختر صنفًا', 'Select product')}</option>{data.products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
             <Field title={t('الكمية', 'Quantity')}><input name="quantity" defaultValue={original?.quantity} type="number" min="1" max="100000000" step="1" inputMode="numeric" required /></Field>
           </>}
-          {!debt && kind !== 'purchase' && <Field title={t('التصنيف', 'Category')}><input name="category" defaultValue={original?.category} maxLength={80} list="categories" placeholder={t('مثال: إيجار سيارة', 'e.g. Vehicle rental')} required />
-            <datalist id="categories">{[t('إيجار سيارة', 'Vehicle rental'), t('وقود', 'Fuel'), t('سكن ومكتب', 'Accommodation and office'), t('إكراميات', 'Tips'), t('أكل وشرب', 'Food and drink'), t('تمويل مؤقت', 'Temporary funding'), t('نقل وشحن', 'Freight'), t('معدات', 'Equipment'), ...new Set(data.entries.map(e => e.category))].map((value, index) => <option key={index} value={value} />)}</datalist>
+          {!debt && kind !== 'purchase' && <Field title={kind === 'expense' ? t('نوع المصروف', 'Expense category') : t('التصنيف', 'Category')}><input name="category" defaultValue={original?.category} maxLength={80} list="categories" required />
+            <datalist id="categories">{categories.map(value => <option key={value} value={value} />)}</datalist>
           </Field>}
-          <Field title={t('العملة', 'Currency')}><select value={currency} onChange={e => setCurrency(e.target.value as Currency)} disabled={Boolean(debt)}>{currencies.map(c => <option key={c}>{c}</option>)}</select></Field>
-          <Field title={t('المبلغ الإجمالي', 'Total amount')}><input type="number" inputMode="decimal" min="0.01" max={debt ? remaining / 100 : 1000000000} step="0.01" value={amount} onChange={e => setAmount(e.target.value)} required /></Field>
+          <Field title={expenseOnly ? t('المبلغ', 'Amount') + ' (' + currency + ')' : t('المبلغ الإجمالي', 'Total amount')}><input type="number" inputMode="decimal" min="0.01" max={debt ? remaining / 100 : 1000000000} step="0.01" value={amount} onChange={e => setAmount(e.target.value)} required /></Field>
+          {expenseOnly && <Field title={t('على ماذا صُرف؟', 'What was it spent on?')} wide><input name="description" value={description} onChange={event => setDescription(event.target.value)} maxLength={500} required /></Field>}
           {kind === 'purchase' && <Field title={t('المبلغ المدفوع', 'Amount paid')}><input name="paid" defaultValue={original ? original.paid / 100 : undefined} type="number" inputMode="decimal" min="0" max={amount || undefined} step="0.01" required /></Field>}
-          {currency !== 'SAR' && <Field title={t('سعر صرف 1', 'SAR per 1') + ' ' + currency + (lang === 'ar' ? ' بالريال' : '')}><input type="number" inputMode="decimal" min="0.000001" max="10000" step="0.000001" value={rate} onChange={e => setRate(e.target.value)} placeholder={debt ? String(debt.rate) : undefined} required /></Field>}
-          <Field title={t('طريقة الدفع', 'Payment method')}><select name="method" defaultValue={original?.method ?? 'bank'}><option value="bank">{t('تحويل بنكي', 'Bank transfer')}</option><option value="cash">{t('نقدًا', 'Cash')}</option><option value="card">{t('بطاقة', 'Card')}</option></select></Field>
-          {kind === 'expense' && scope === 'business' && data.containers.length > 0 && <Field title={t('ربط بحاوية (اختياري)', 'Link to container (optional)')}><select name="container" defaultValue={original?.container_id ?? entry?.container?.id ?? ''}><option value="">{t('بدون حاوية', 'No container')}</option>{data.containers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>}
-          {currency !== 'SAR' && Number(amount) > 0 && Number(amount) <= 1000000000 && Number(rate) > 0 && Number(rate) <= 10000 && <p className="form-note field-wide">{t('ما يعادله بالريال', 'SAR equivalent')}: <bdi>{money(toSar(minor(amount), Number(rate)), 'SAR', lang)}</bdi></p>}
-          <Field title={original?.receipt_path ? t('استبدال الفاتورة المرفقة (اختياري)', 'Replace attached receipt (optional)') : t('فاتورة أو إيصال (اختياري)', 'Invoice or receipt (optional)')} wide>
-            <div className="file-field"><Paperclip size={16} /><input name="receipt" type="file" accept={receiptAccept} disabled={unavailable} onChange={event => {
-              setFile(event.target.files?.[0] ?? null);
-              setScan(null);
-              setScanMessage('');
-            }} /></div>
-          </Field>
-          {file && !debt && <div className="field-wide receipt-scan">
-            <button type="button" className="btn secondary" disabled={unavailable} onClick={readInvoice}><ScanText size={17} />{reading ? t('جارٍ قراءة الفاتورة…', 'Reading invoice…') : t('قراءة الفاتورة', 'Read invoice')}</button>
-            {reading && <progress max={100} value={progress} aria-label={t('تقدم قراءة الفاتورة', 'Invoice scanning progress')} />}
-            {scan && Object.values(scan.fields).some(Boolean) && <div className="scan-result">
-              <strong>{t('البيانات المقترحة', 'Suggested fields')}</strong>
-              <p>{[scan.fields.supplier, scan.fields.number, scan.fields.date, [scan.fields.total, scan.fields.currency].filter(Boolean).join(' ')].filter(Boolean).join(' · ')}</p>
-              <button type="button" className="btn secondary" disabled={unavailable} onClick={applyInvoice}>{t('استخدام البيانات المقترحة', 'Apply suggestions')}</button>
-            </div>}
-            {scan?.text && <details className="detail"><summary>{t('النص المقروء', 'Recognized text')} · {scan.pagesRead}/{scan.pageCount}</summary><pre dir="auto">{scan.text}</pre></details>}
-            {scanMessage && <p role="status">{scanMessage}</p>}
-          </div>}
+          {expenseOnly ? <details className="debt-more field-wide" open={Boolean(entry?.container || original?.container_id) || undefined}
+            onInvalidCapture={event => { event.currentTarget.open = true; }}>
+            <summary>{t('تفاصيل اختيارية', 'Optional details')}</summary>
+            <div className="form-grid">{entryOptions}</div>
+          </details> : entryOptions}
           {original && <Field title={t('سبب التصحيح', 'Correction reason')} wide><input name="reason" maxLength={500} required /></Field>}
-        </>}
-        {editor.type === 'container' && <>
-          <Field title={t('رقم الحاوية', 'Container number')}><input name="name" placeholder="JED–002" maxLength={80} required /></Field>
-          <Field title={t('الوجهة', 'Destination')}><input name="destination" maxLength={120} required /></Field>
-          <Field title={t('رقم الحجز (اختياري)', 'Booking reference (optional)')} wide><input name="booking" maxLength={100} /></Field>
         </>}
         {editor.type === 'load' && <>
           <p className="form-note field-wide">{editor.container.name} · {editor.container.destination}</p>
