@@ -9,27 +9,31 @@ export const translate = (lang: Lang) => (ar: string, en: string) => lang === 'a
 export const errorMessage = (error: unknown) => error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error);
 const field = (form: FormData, key: string) => String(form.get(key) ?? '').trim();
 const newRecord = () => ({ id: crypto.randomUUID(), created_at: new Date().toISOString() });
-export type Editor = { type: 'entry'; kind?: Kind; debt?: Entry; container?: Container; original?: Entry } |
+export type RecordEditor = { type: 'entry'; kind?: Kind; container?: Container; original?: Entry } |
   { type: 'product' } | { type: 'container' } | { type: 'load'; container: Container } |
-  { type: 'history' | 'void'; original: Entry };
+  { type: 'history'; original: Entry } | { type: 'void'; original: Entry; debtItem?: 'debt' | 'payment' };
+export type DebtEditor = { type: 'debt' } | { type: 'settlement'; debt: Entry };
+export type Editor = RecordEditor | DebtEditor;
 export type RecordChange = { type: 'entry'; value: Entry; receipt?: File; original?: Entry; reason: string } |
   { type: 'product'; value: Product } | { type: 'container'; value: Container } | { type: 'load'; value: LoadDraft } |
   { type: 'void'; original: Entry; reason: string };
 type Scan = Awaited<ReturnType<typeof import('@/lib/scan-invoice').scanInvoice>>;
 
-function Field({ title, children, wide = false }: { title: string; children: ReactNode; wide?: boolean }) {
+export function Field({ title, children, wide = false }: { title: string; children: ReactNode; wide?: boolean }) {
   return <label className={'field' + (wide ? ' field-wide' : '')}><span>{title}</span>{children}</label>;
 }
 
 export function EditorDialog({ editor, data, lang, close, save, onReceipt }: {
-  editor: Editor; data: Dataset; lang: Lang; close: () => void; save: (change: RecordChange) => Promise<void>; onReceipt: (path: string) => void;
+  editor: RecordEditor; data: Dataset; lang: Lang; close: () => void; save: (change: RecordChange) => Promise<void>; onReceipt: (path: string) => void;
 }) {
   const t = translate(lang);
   const dialog = useRef<HTMLDialogElement>(null);
   const identityRef = useRef<ReturnType<typeof newRecord> | null>(null);
   const entry = editor.type === 'entry' ? editor : undefined;
   const original = entry?.original;
-  const debt = entry?.debt ?? data.entries.find(row => row.id === original?.settles_id);
+  const debt = original?.settles_id ? data.entries.find(row => row.id === original.settles_id) : undefined;
+  const debtItem = editor.type === 'void' ? editor.debtItem : undefined;
+  const deleteTitle = debtItem === 'debt' ? t('حذف الدين', 'Delete debt') : t('حذف الدفعة', 'Delete payment');
   const [kind, setKind] = useState<Kind>(original?.kind ?? entry?.kind ?? 'expense');
   const [currency, setCurrency] = useState<Currency>(original?.currency ?? debt?.currency ?? 'SAR');
   const [scope, setScope] = useState<Entry['scope']>(original?.scope ?? debt?.scope ?? 'business');
@@ -53,7 +57,7 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt }: {
 
   const title = editor.type === 'product' ? t('إضافة صنف', 'Add product') : editor.type === 'container' ?
     t('حاوية جديدة', 'New container') : editor.type === 'load' ? t('تحميل بضاعة', 'Load stock') :
-    editor.type === 'void' ? t('إلغاء الحركة', 'Void transaction') : editor.type === 'history' ? t('سجل التغييرات', 'Change history') :
+    editor.type === 'void' ? (debtItem ? deleteTitle : t('إلغاء الحركة', 'Void transaction')) : editor.type === 'history' ? t('سجل التغييرات', 'Change history') :
     original ? t('تصحيح الحركة', 'Correct transaction') : debt ? t('تسجيل دفعة', 'Record settlement') : t('عملية جديدة', 'New transaction');
   const unavailable = busy || reading;
   const remaining = debt ? debtBalance(debt, data.entries.filter(row => row.id !== original?.id)) : 0;
@@ -125,7 +129,7 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt }: {
         await save({ type: 'load', value: validateLoad({ ...identity, container_id: editor.container.id,
           product_id: field(form, 'product'), quantity: Number(field(form, 'quantity')) }, data) });
       } else {
-        const reason = field(form, 'reason');
+        const reason = debtItem ? t('حُذفت من شاشة الديون', 'Removed from the debts screen') : field(form, 'reason');
         if (!reason) throw new Error(t('اكتب سبب الإلغاء.', 'Enter the reason for voiding.'));
         await save({ type: 'void', original: editor.original, reason });
       }
@@ -218,15 +222,19 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt }: {
           <Field title={t('الكمية المحملة', 'Quantity loaded')}><input name="quantity" type="number" min="1" max="100000000" step="1" inputMode="numeric" required /></Field>
         </>}
         {editor.type === 'void' && <>
-          <p className="form-note field-wide">{editor.original.description} · <bdi>{money(editor.original.amount, editor.original.currency, lang)}</bdi></p>
-          <p className="field-wide muted">{t('تُستبعد الحركة من الأرصدة والتقارير مع إبقائها في سجل التغييرات.', 'The transaction is excluded from balances and reports and retained in the change history.')}</p>
-          <Field title={t('سبب الإلغاء', 'Reason for voiding')} wide><input name="reason" maxLength={500} required /></Field>
+          <p className="form-note field-wide">{debtItem ? editor.original.party : editor.original.description} · <bdi>{money(editor.original.amount, editor.original.currency, lang)}</bdi></p>
+          <p className="field-wide muted">{debtItem === 'debt'
+            ? t('يُحذف الدين من القائمة والأرصدة، وتبقى نسخة في سجل التغييرات.', 'The debt is removed from the list and balances, and retained in the change history.')
+            : debtItem === 'payment'
+              ? t('ترجع قيمة الدفعة إلى المبلغ المتبقي، وتبقى نسخة في سجل التغييرات.', 'The payment amount returns to the outstanding balance and remains in the change history.')
+              : t('تُستبعد الحركة من الأرصدة والتقارير مع إبقائها في سجل التغييرات.', 'The transaction is excluded from balances and reports and retained in the change history.')}</p>
+          {!debtItem && <Field title={t('سبب الإلغاء', 'Reason for voiding')} wide><input name="reason" maxLength={500} required /></Field>}
         </>}
       </div>
       {error && <p className="error-box" role="alert">{error}</p>}
       <footer className="dialog-actions">
         <button className="btn secondary" type="button" onClick={close} disabled={unavailable}>{t('رجوع', 'Back')}</button>
-        <button className={'btn ' + (editor.type === 'void' ? 'danger' : 'primary')} type="submit" disabled={unavailable}><Check size={17} />{busy ? t('جارٍ الحفظ…', 'Saving…') : editor.type === 'void' ? t('تأكيد إلغاء الحركة', 'Void transaction') : t('حفظ', 'Save')}</button>
+        <button className={'btn ' + (editor.type === 'void' ? 'danger' : 'primary')} type="submit" disabled={unavailable}><Check size={17} />{busy ? t('جارٍ الحفظ…', 'Saving…') : editor.type === 'void' ? (debtItem ? deleteTitle : t('تأكيد إلغاء الحركة', 'Void transaction')) : t('حفظ', 'Save')}</button>
       </footer>
     </form>}
   </dialog>;

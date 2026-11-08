@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import { ArrowDownLeft, ArrowUpRight, Ban, Box, CalendarDays, CircleDollarSign, Download, FileText, History, Package, Pencil, Plus, ReceiptText, Search, Ship, ShoppingBag, Wallet } from 'lucide-react';
-import { baseAmount, cashAmount, currencies, debtBalance, debtPrincipal, debtSide, inventory, kindLabels, money, summary, type Container, type Dataset, type Entry, type Kind, type Lang } from '@/lib/domain';
+import { ArrowDownLeft, ArrowUpRight, Ban, Box, CircleDollarSign, Download, FileText, History, Package, Pencil, Plus, ReceiptText, Search, Ship, ShoppingBag, Trash2, Wallet } from 'lucide-react';
+import { baseAmount, cashAmount, currencies, debtBalance, debtPrincipal, debtSide, inventory, kindLabels, money, summary, type Container, type Dataset, type DebtDirection, type Entry, type Kind, type Lang } from '@/lib/domain';
 import { type Editor, translate } from './forms';
 import { containerCost } from './reports';
 
@@ -124,30 +124,62 @@ export function Ledger({ entries, lang, kind, onReceipt, edit }: {
   </section>;
 }
 
-export function Debts({ entries, lang, edit }: { entries: Entry[]; lang: Lang; edit: (editor: Editor) => void }) {
+export function Debts({ entries, lang, edit, openPurchases }: {
+  entries: Entry[]; lang: Lang; edit: (editor: Editor) => void; openPurchases: () => void;
+}) {
   const t = translate(lang);
-  const [side, setSide] = useState<'all' | 'receivable' | 'payable'>('all');
+  const [side, setSide] = useState<'all' | DebtDirection>('all');
   const [showClosed, setShowClosed] = useState(false);
   const [party, setParty] = useState('');
-  const items = entries.filter(e => debtPrincipal(e) > 0 && (side === 'all' || debtSide(e) === side) &&
-    (showClosed || debtBalance(e, entries) > 0) && e.party.toLowerCase().includes(party.trim().toLowerCase()));
+  const paymentsByDebt = new Map<string, Entry[]>();
+  for (const payment of entries) {
+    if (!payment.settles_id) continue;
+    const payments = paymentsByDebt.get(payment.settles_id);
+    if (payments) payments.push(payment);
+    else paymentsByDebt.set(payment.settles_id, [payment]);
+  }
+  const search = party.trim().toLowerCase();
+  const items = entries.filter(e => debtPrincipal(e) > 0 && (side === 'all' || debtSide(e) === side) && e.party.toLowerCase().includes(search))
+    .map(entry => {
+      const payments = paymentsByDebt.get(entry.id) ?? [];
+      return { entry, payments, balance: debtBalance(entry, payments) };
+    }).filter(item => showClosed || item.balance > 0);
+  const filters = [['all', t('الكل', 'All')], ['receivable', t('لنا', 'Owed to us')], ['payable', t('علينا', 'We owe')]] as const;
   return <>
     <section className="panel filters debt-filters">
-      <label className="field"><span>{t('الاتجاه', 'Direction')}</span><select value={side} onChange={e => setSide(e.target.value as typeof side)}><option value="all">{t('الكل', 'All')}</option><option value="receivable">{t('ديون لنا', 'Receivables')}</option><option value="payable">{t('ديون علينا', 'Payables')}</option></select></label>
-      <label className="field"><span>{t('كشف حساب الجهة', 'Party statement')}</span><input value={party} onChange={e => setParty(e.target.value)} placeholder={t('ابحث باسم الجهة', 'Search by party')} /></label>
+      <div className="debt-filter-options" role="group" aria-label={t('فلترة الديون', 'Filter debts')}>
+        {filters.map(([value, label]) => <button key={value} className="btn secondary" aria-pressed={side === value} onClick={() => setSide(value)}>{label}</button>)}
+      </div>
+      <label className="field"><span>{t('بحث بالاسم', 'Search by name')}</span><input value={party} onChange={e => setParty(e.target.value)} placeholder={t('اسم الشخص أو الجهة', 'Person or company')} /></label>
       <label className="check-field"><input type="checkbox" checked={showClosed} onChange={e => setShowClosed(e.target.checked)} /> {t('إظهار المسدّد', 'Show settled')}</label>
     </section>
     {!items.length && <section className="panel"><Empty>{t('لا توجد ديون تطابق الاختيار.', 'No debts match these filters.')}</Empty></section>}
-    <div className="cards">{items.map(e => {
-      const balance = debtBalance(e, entries), payable = debtSide(e) === 'payable', payments = entries.filter(row => row.settles_id === e.id);
+    <div className="cards">{items.map(({ entry: e, balance, payments }) => {
+      const payable = debtSide(e) === 'payable';
+      const fromPurchase = e.kind === 'purchase';
       return <article className="panel record-card" key={e.id}>
-        <div className="card-heading"><span className={'metric-icon ' + (payable ? 'amber' : 'blue')}>{payable ? <ArrowUpRight size={19} /> : <ArrowDownLeft size={19} />}</span><span className="tag">{balance === 0 ? t('مسدّد', 'Settled') : payable ? t('علينا', 'Payable') : t('لنا', 'Receivable')}</span></div>
-        <h2>{e.party}</h2><p>{e.description}</p>
-        <div className="debt-total"><div><small>{t('المتبقي', 'Outstanding')}</small><strong><bdi>{money(balance, e.currency, lang)}</bdi></strong></div><div><small>{t('أصل الدين', 'Principal')}</small><bdi>{money(debtPrincipal(e), e.currency, lang)}</bdi></div></div>
-        <div className="meta-line"><CalendarDays size={15} /> <bdi>{e.date}</bdi><span>·</span>{e.scope === 'business' ? t('تجاري', 'Business') : t('شخصي', 'Personal')}</div>
-        {payments.length > 0 && <details className="detail"><summary>{payments.length} {t('دفعة مسجلة', 'recorded payments')}</summary>
-          {payments.map(p => <div className="split-line" key={p.id}><bdi>{p.date}</bdi><bdi>{money(p.amount, p.currency, lang)}</bdi></div>)}</details>}
-        {balance > 0 && <button className="btn secondary" onClick={() => edit({ type: 'entry', kind: payable ? 'repay' : 'collect', debt: e })}><Plus size={16} />{t('تسجيل دفعة', 'Record settlement')}</button>}
+        <div className="card-heading">
+          <span className={'debt-badge ' + (payable ? 'amber' : 'blue')}>{payable ? <ArrowUpRight size={16} /> : <ArrowDownLeft size={16} />}{payable ? t('دين علينا', 'We owe') : t('دين لنا', 'Owed to us')}</span>
+          {balance === 0 && <span className="tag">{t('مسدّد', 'Settled')}</span>}
+        </div>
+        <h2>{e.party}</h2>
+        <div className="debt-total"><small>{t('المتبقي', 'Outstanding')}</small><strong><bdi>{money(balance, e.currency, lang)}</bdi></strong></div>
+        <div className="actions">
+          {balance > 0 && <button className="btn primary" onClick={() => edit({ type: 'settlement', debt: e })}>{payable ? t('سداد دفعة', 'Record payment sent') : t('استلام دفعة', 'Record money received')}</button>}
+          {fromPurchase ? <button className="btn secondary" onClick={openPurchases}>{t('عرض المشتريات', 'View purchases')}</button>
+            : <button className="btn secondary debt-delete" disabled={payments.length > 0} onClick={() => edit({ type: 'void', original: e, debtItem: 'debt' })}><Trash2 size={15} />{t('حذف الدين', 'Delete debt')}</button>}
+        </div>
+        {fromPurchase && <p className="debt-hint">{t('هذا الدين مرتبط بعملية شراء.', 'This debt is linked to a purchase.')}</p>}
+        {!fromPurchase && payments.length > 0 && <p className="debt-hint">{t('لحذف الدين، احذف الدفعات المرتبطة من التفاصيل أولًا.', 'To delete the debt, first remove its linked payments in Details.')}</p>}
+        <details className="detail">
+          <summary>{payments.length ? t('التفاصيل والدفعات', 'Details and payments') + ' (' + payments.length + ')' : t('التفاصيل', 'Details')}</summary>
+          <p>{e.description} · <bdi>{e.date}</bdi> · {e.scope === 'business' ? t('تجاري', 'Business') : t('شخصي', 'Personal')}</p>
+          <div className="split-line"><span>{t('أصل الدين', 'Principal')}</span><bdi>{money(debtPrincipal(e), e.currency, lang)}</bdi></div>
+          {payments.map(p => <div className="split-line debt-payment-row" key={p.id}>
+            <span><bdi>{money(p.amount, p.currency, lang)}</bdi> · <bdi>{p.date}</bdi></span>
+            <button className="btn secondary debt-delete" onClick={() => edit({ type: 'void', original: p, debtItem: 'payment' })}>{t('حذف الدفعة', 'Delete payment')}</button>
+          </div>)}
+        </details>
       </article>;
     })}</div>
   </>;

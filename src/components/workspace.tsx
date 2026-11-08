@@ -5,6 +5,7 @@ import { ChartNoAxesCombined, CircleDollarSign, ClipboardList, Globe2, LayoutDas
 import { activeEntries, emptyData, type Container, type Dataset, type Lang } from '@/lib/domain';
 import { advanceContainer, configured, downloadReceipt, loadData, reviseEntry, saveContainer, saveEntry, saveLoad, saveProduct, supabase, uploadReceipt } from '@/lib/storage';
 import { EditorDialog, errorMessage, translate, type Editor, type RecordChange } from './forms';
+import { DebtEditorDialog } from './debt-editor';
 import { Dashboard, Debts, Inventory, Ledger, Shipments } from './views';
 import { Reports } from './reports';
 
@@ -12,7 +13,7 @@ const navigation = [
   { id: 'overview', labels: ['نظرة عامة', 'Overview'], description: ['ملخص حسابات ومشتريات فرع جدة في مكان واحد.', 'Your Jeddah accounts and operations in one place.'], icon: LayoutDashboard },
   { id: 'ledger', labels: ['الحركات المالية', 'Transactions'], description: ['تتبع التمويل والمصاريف والأصول وحركة النقد.', 'Track funding, expenses, assets, and cash movement.'], icon: ClipboardList },
   { id: 'purchases', labels: ['المشتريات', 'Purchases'], description: ['سجّل مشتريات الموردين وتابع المدفوع والمتبقي.', 'Record supplier purchases and track amounts paid and outstanding.'], icon: ShoppingBag },
-  { id: 'debts', labels: ['الديون والسلف', 'Debts and advances'], description: ['تابع ما لنا وما علينا بالعملة الأصلية وسجّل دفعات السداد.', 'Track balances in their original currencies and record settlements.'], icon: CircleDollarSign },
+  { id: 'debts', labels: ['الديون والسلف', 'Debts and advances'], description: ['اعرف مين له عندك ومين عليه لك.', 'See who owes you and who you owe.'], icon: CircleDollarSign },
   { id: 'inventory', labels: ['المخزون', 'Inventory'], description: ['تابع الأصناف والكميات المشتراة والمحملة والمتبقية.', 'Track products and quantities purchased, loaded, and in stock.'], icon: Package },
   { id: 'shipments', labels: ['الحاويات والشحن', 'Containers'], description: ['أدر تحميل البضائع وتابع تكاليف الحاويات والشحن.', 'Manage stock loading and track container and shipping costs.'], icon: Ship },
   { id: 'receipts', labels: ['الفواتير', 'Receipts'], description: ['استعرض الفواتير والإيصالات المرفقة بالحركات.', 'Find invoices and receipts attached to transactions.'], icon: ReceiptText },
@@ -135,7 +136,7 @@ export default function Workspace() {
       await saveLoad(change.value);
     }
     setRefresh(n => n + 1);
-    setNotice(t('تم الحفظ بنجاح.', 'Saved successfully.'));
+    setNotice(change.type === 'void' ? t('أُزيلت الحركة من الأرصدة.', 'Transaction removed from balances.') : t('تم الحفظ بنجاح.', 'Saved successfully.'));
   }
   async function changeStatus(container: Container) {
     if (updating || container.status === 'arrived') return;
@@ -196,7 +197,8 @@ export default function Workspace() {
   function openEditor() {
     if (section === 'inventory') setEditor({ type: 'product' });
     else if (section === 'shipments') setEditor({ type: 'container' });
-    else setEditor({ type: 'entry', kind: section === 'purchases' ? 'purchase' : section === 'debts' ? 'borrow' : 'expense' });
+    else if (section === 'debts') setEditor({ type: 'debt' });
+    else setEditor({ type: 'entry', kind: section === 'purchases' ? 'purchase' : 'expense' });
   }
 
   return <div className="workspace">
@@ -228,7 +230,7 @@ export default function Workspace() {
         {ready && <>
           {section === 'overview' && <Dashboard data={data} entries={currentEntries} lang={lang} navigate={navigate} onReceipt={receipt} edit={setEditor} />}
           {(section === 'ledger' || section === 'purchases' || section === 'receipts') && <Ledger key={section} entries={entries} lang={lang} kind={section === 'purchases' ? 'purchase' : section === 'receipts' ? 'receipts' : undefined} onReceipt={receipt} edit={setEditor} />}
-          {section === 'debts' && <Debts entries={currentEntries} lang={lang} edit={setEditor} />}
+          {section === 'debts' && <Debts entries={currentEntries} lang={lang} edit={setEditor} openPurchases={() => navigate('purchases')} />}
           {section === 'inventory' && <Inventory data={data} lang={lang} />}
           {section === 'shipments' && <Shipments data={data} lang={lang} edit={setEditor} advance={changeStatus} updating={updating} />}
           {section === 'reports' && <Reports data={data} lang={lang} />}
@@ -237,6 +239,8 @@ export default function Workspace() {
       </main>
     </div>
     {notice && <div className="toast no-print" role="status">{notice}</div>}
-    {editor && ready && <EditorDialog editor={editor} data={data} lang={lang} close={() => setEditor(null)} save={record} onReceipt={receipt} />}
+    {editor && ready && (editor.type === 'debt' || editor.type === 'settlement'
+      ? <DebtEditorDialog editor={editor} data={data} lang={lang} close={() => setEditor(null)} save={record} />
+      : <EditorDialog editor={editor} data={data} lang={lang} close={() => setEditor(null)} save={record} onReceipt={receipt} />)}
   </div>;
 }

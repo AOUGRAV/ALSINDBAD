@@ -1,8 +1,40 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { baseAmount, debtBalance, inventory, summary, toSar, validateEntry, validateLoad, type Entry, type LoadDraft } from '../src/lib/domain';
+import { baseAmount, debtBalance, debtSide, emptyData, inventory, prepareDebtEntry, summary, toSar, validateEntry, validateLoad, type Entry, type LoadDraft } from '../src/lib/domain';
 import { sampleData } from './fixtures';
+
+test('borrowing, lending part of it, and paying an expense produce two debts and the remaining cash', () => {
+  const data = emptyData();
+  const fields = {
+    created_at: '2026-11-08T12:00:00Z', date: '2026-11-08', rate: 1,
+    method: 'bank' as const, category: 'Debts', scope: 'business' as const,
+    currency: 'SAR' as const, opening: false,
+  };
+  const payable = prepareDebtEntry({ ...fields, id: randomUUID(), direction: 'payable',
+    party: 'Lender', description: 'Borrowed', amount: 100_000 }, data);
+  const receivable = prepareDebtEntry({ ...fields, id: randomUUID(), direction: 'receivable',
+    party: 'Borrower', description: 'Lent', amount: 35_000 }, data);
+  const expense = validateEntry({ ...receivable, id: randomUUID(), kind: 'expense',
+    party: 'Vendor', description: 'Invoice', amount: 22_500, paid: 22_500 }, data);
+  const entries = [payable, receivable, expense];
+  assert.equal(debtSide(payable), 'payable');
+  assert.equal(debtSide(receivable), 'receivable');
+  assert.deepEqual(summary(entries), { cash: 42_500, purchases: 0, expenses: 22_500, payable: 100_000, receivable: 35_000 });
+  assert.equal(summary([{ ...payable, voided_at: fields.created_at }, receivable, expense]).payable, 0);
+});
+
+test('a payment created from a debt uses its own direction, party and original currency', () => {
+  const data = sampleData();
+  const debt = data.entries.find(entry => entry.kind === 'borrow')!;
+  const payment = prepareDebtEntry({ id: randomUUID(), created_at: debt.created_at, date: debt.date,
+    debt, amount: 25_000, rate: debt.rate, method: 'bank', description: 'Payment' }, data);
+  assert.equal(payment.kind, 'repay');
+  assert.equal(payment.currency, debt.currency);
+  assert.equal(payment.party, debt.party);
+  assert.equal(payment.settles_id, debt.id);
+  assert.equal(debtBalance(debt, [...data.entries, payment]), debt.amount - payment.amount);
+});
 
 test('temporary financing increases available cash and payables together', () => {
   const debt = sampleData().entries.find(entry => entry.kind === 'borrow')!;

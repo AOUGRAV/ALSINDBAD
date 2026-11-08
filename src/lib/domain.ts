@@ -57,7 +57,9 @@ export const cashAmount = (entry: Entry, inSar = false) => entry.opening || entr
 export const debtPrincipal = (e: Entry) => e.kind === 'purchase' ? e.amount - e.paid : ['borrow', 'lend'].includes(e.kind) ? e.amount : 0;
 export const debtBalance = (entry: Entry, entries: Entry[]) => entry.voided_at ? 0 : debtPrincipal(entry) -
   entries.filter(x => !x.voided_at && x.settles_id === entry.id).reduce((sum, x) => sum + x.amount, 0);
-export const debtSide = (e: Entry) => e.kind === 'lend' ? 'receivable' : 'payable';
+export type DebtDirection = 'receivable' | 'payable';
+export const debtSide = (e: Entry): DebtDirection => e.kind === 'lend' ? 'receivable' : 'payable';
+const settlementKind = (debt: Entry) => debtSide(debt) === 'receivable' ? 'collect' : 'repay';
 export function validateEntry(input: unknown, data: Dataset, original?: Entry): Entry {
   const e = entrySchema.parse(input);
   if (!original && data.entries.some(x => x.id === e.id)) throw new Error('العملية مسجلة مسبقًا / Duplicate entry');
@@ -67,12 +69,26 @@ export function validateEntry(input: unknown, data: Dataset, original?: Entry): 
     const debt = data.entries.find(x => x.id === e.settles_id && !x.voided_at);
     if (!debt || debtPrincipal(debt) === 0) throw new Error('الدين غير موجود / Debt not found');
     if (debt.currency !== e.currency) throw new Error('السداد بنفس عملة الدين / Settle in the debt currency');
-    if ((debt.kind === 'lend' ? 'collect' : 'repay') !== e.kind) throw new Error('نوع السداد غير صحيح / Invalid settlement kind');
+    if (settlementKind(debt) !== e.kind) throw new Error('نوع السداد غير صحيح / Invalid settlement kind');
     if (e.amount > debtBalance(debt, data.entries.filter(x => x.id !== original?.id))) throw new Error('المبلغ يتجاوز المتبقي / Settlement exceeds balance');
     if (e.date < debt.date) throw new Error('السداد يسبق تاريخ الدين / Settlement predates debt');
     if (e.party !== debt.party || e.scope !== debt.scope) throw new Error('جهة السداد وتصنيفه يجب أن يطابقا الدين / Settlement must match debt');
   }
   return e;
+}
+
+type DebtDraft = Pick<Entry, 'id' | 'created_at' | 'date' | 'amount' | 'rate' | 'method' | 'description'> &
+  ({ debt: Entry } | Pick<Entry, 'party' | 'category' | 'scope' | 'currency' | 'opening'> & { direction: DebtDirection });
+
+export function prepareDebtEntry(draft: DebtDraft, data: Dataset) {
+  const common = { paid: draft.amount, quantity: 0, product_id: null, container_id: null, receipt_path: null };
+  if ('debt' in draft) {
+    const { debt, ...fields } = draft;
+    return validateEntry({ ...common, ...fields, kind: settlementKind(debt), settles_id: debt.id,
+      party: debt.party, scope: debt.scope, category: debt.category, currency: debt.currency }, data);
+  }
+  const { direction, ...fields } = draft;
+  return validateEntry({ ...common, ...fields, kind: direction === 'receivable' ? 'lend' : 'borrow', settles_id: null }, data);
 }
 export function inventory(data: Dataset, productId: string) {
   const purchases = data.entries.filter(e => !e.voided_at && e.product_id === productId);
