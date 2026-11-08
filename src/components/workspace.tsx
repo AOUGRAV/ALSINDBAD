@@ -25,7 +25,7 @@ const languageKey = 'alsindbad.language';
 function Brand() {
   return <div className="brand">
     <span className="brand-logo"><img src="/brand/alsindbad-logo.svg" width={767} height={771} alt="" /></span>
-    <div><strong>السندباد</strong><small>ALSINDBAD</small></div>
+    <div><strong lang="ar">السندباد</strong><small lang="en">ALSINDBAD</small></div>
   </div>;
 }
 
@@ -157,30 +157,17 @@ export default function Workspace() {
   if (!authReady || !userId) return <main className="gate">
     <div className="gate-top">{languageButton}</div>
     <div className="gate-grid">
-      <section className="gate-art">
-        <svg className="harbor-mark" viewBox="0 0 400 300" aria-hidden="true">
-          <defs><pattern id="chart-grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" stroke="currentColor" strokeOpacity=".23" /></pattern></defs>
-          <rect width="400" height="300" fill="url(#chart-grid)" />
-          <path d="M-12 251C55 193 86 244 142 196S205 92 251 104 306 160 409 57" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="4 6" />
-          <circle cx="251" cy="104" r="42" fill="none" stroke="currentColor" strokeOpacity=".45" />
-          <circle cx="251" cy="104" r="8" fill="currentColor" />
-          <path d="M251 38v36m0 60v36m-66-66h36m60 0h36" stroke="currentColor" strokeOpacity=".5" />
-        </svg>
-        <Brand />
-        <div><h1>{t('عمليات جدة، في مكان واحد.', 'Jeddah operations, in one place.')}</h1><p>{t('الحسابات والمشتريات والحاويات، من أول عملية إلى آخر شحنة.', 'Accounts, purchases, and containers from the first transaction to the last shipment.')}</p></div>
-        <div className="gate-location"><MapPin size={16} />{t('جدة · المملكة العربية السعودية', 'Jeddah · Saudi Arabia')}</div>
-      </section>
+      <div className="gate-art"><Brand /></div>
       <section className="gate-card">
         <span className="metric-icon green"><LockKeyhole size={20} /></span>
-        <h2>{!authReady ? t('جارٍ التحميل…', 'Loading…') : configured ? t('تسجيل الدخول', 'Sign in') : t('مساحة عمل خاصة', 'Private workspace')}</h2>
-        {authReady && (configured ? <>
-          <p>{t('سجّل الدخول إلى حساب فرع جدة.', 'Sign in to the Jeddah workspace.')}</p>
+        <h1>{!authReady ? t('جارٍ التحميل…', 'Loading…') : configured ? t('تسجيل الدخول', 'Sign in') : t('مساحة عمل خاصة', 'Private workspace')}</h1>
+        {authReady && (configured ?
           <form className="login-form" onSubmit={signIn}>
             <label className="field"><span>{t('البريد الإلكتروني', 'Email address')}</span><input type="email" dir="ltr" name="email" autoComplete="username" required /></label>
             <label className="field"><span>{t('كلمة المرور', 'Password')}</span><input type="password" dir="ltr" name="password" autoComplete="current-password" required /></label>
             <button className="btn primary" disabled={busy}>{busy ? t('جارٍ الدخول…', 'Signing in…') : t('دخول', 'Sign in')}</button>
           </form>
-        </> : <p>{t('مساحة العمل بانتظار تفعيل تسجيل الدخول.', 'Sign-in setup is required to open this workspace.')}</p>)}
+          : <p>{t('مساحة العمل بانتظار تفعيل تسجيل الدخول.', 'Sign-in setup is required to open this workspace.')}</p>)}
         {error && <p className="error-box" role="alert">{error}</p>}
       </section>
     </div>
