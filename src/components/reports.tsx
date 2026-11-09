@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Download, Printer } from 'lucide-react';
 import { activeEntries, baseAmount, cashAmount, debtBalance, debtPrincipal, debtSide, kindLabels, kinds, today, type Dataset, type Lang } from '@/lib/domain';
 import { invoiceLineTotal, invoiceTotals, invoiceVatPercent } from '@/lib/purchases';
+import { containerCost } from '@/lib/manifest';
 import { errorMessage, translate } from './forms';
 
 type Cell = string | number;
@@ -14,13 +15,6 @@ export const reportKinds: Record<ReportKind, [string, string]> = {
   purchases: ['فواتير الشراء', 'Purchase invoices'], prices: ['أسعار الشراء', 'Purchase prices'],
   containers: ['تكلفة الحاويات', 'Container costs'],
 };
-export function containerCost(data: Dataset, id: string) {
-  const lines = data.loads.filter(load => load.container_id === id);
-  const invoiceLines = data.invoice_loads.filter(load => load.container_id === id);
-  const goods = [...lines, ...invoiceLines].reduce((sum, load) => sum + load.cost_sar, 0);
-  const shipping = data.entries.filter(e => !e.voided_at && e.container_id === id).reduce((sum, e) => sum + baseAmount(e), 0);
-  return { lines, invoiceLines, goods, shipping, total: goods + shipping };
-}
 
 async function downloadExcel(report: Report, title: string, range: string, lang: Lang) {
   const { Workbook } = await import('exceljs');
@@ -95,12 +89,12 @@ export function Reports({ data, lang }: { data: Dataset; lang: Lang }) {
       numeric: [4, 5, 6, 7, 8],
     };
     if (kind === 'containers') return {
-      headers: [t('الحاوية', 'Container'), t('الوجهة', 'Destination'), t('قيمة البضاعة (SAR)', 'Stock value (SAR)'), t('مصاريف الشحن (SAR)', 'Shipping (SAR)'), t('الإجمالي (SAR)', 'Total (SAR)')],
+      headers: [t('الحاوية', 'Container'), t('الوجهة', 'Destination'), t('قيمة البضاعة (SAR)', 'Stock value (SAR)'), t('مصاريف الشحن (SAR)', 'Shipping (SAR)'), t('الإجمالي (SAR)', 'Total (SAR)'), t('الإجمالي (GBP)', 'Total (GBP)')],
       rows: data.containers.map(c => {
-        const cost = containerCost(data, c.id);
-        return [c.name, c.destination, cost.goods / 100, cost.shipping / 100, cost.total / 100];
+        const cost = containerCost(data, c);
+        return [c.name, c.destination, cost.goods / 100, cost.shipping / 100, cost.total / 100, cost.gbp === null ? '—' : cost.gbp / 100];
       }),
-      numeric: [2, 3, 4],
+      numeric: [2, 3, 4, 5],
     };
     if (kind === 'prices') return {
       headers: [date, invoiceNumber, product, party, t('الكمية', 'Quantity'), unit, currency, t('سعر الوحدة', 'Unit price'), t('سعر الوحدة (SAR)', 'Unit price (SAR)'), sar],

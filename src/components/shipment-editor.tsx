@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Check, Trash2, X } from 'lucide-react';
-import { type Container, type Dataset, type Lang } from '@/lib/domain';
+import { containerStatusLabels, type Container, type Dataset, type Lang } from '@/lib/domain';
 import { availableInvoiceItems } from '@/lib/manifest';
 import { errorMessage, Field, translate, type RecordChange } from './forms';
 
@@ -48,10 +48,13 @@ export function ShipmentEditor({ container, data, lang, close, save }: {
     const form = new FormData(event.currentTarget);
     const field = (name: string) => String(form.get(name) ?? '').trim();
     try {
-      const name = container?.name ?? field('name');
-      const destination = container?.destination ?? field('destination');
+      const name = field('name');
+      const destination = field('destination');
+      const status = container ? field('status') as Container['status'] : 'preparing';
+      const rate = field('gbp_rate');
+      const gbpRate = rate ? Number(rate) : null;
       if (!name || !destination) throw new Error(t('أدخل رقم الحاوية والوجهة.', 'Enter the container number and destination.'));
-      if (!container && data.containers.some(row => row.name.toLowerCase() === name.toLowerCase())) {
+      if (data.containers.some(row => row.id !== identity.current && row.name.toLowerCase() === name.toLowerCase())) {
         throw new Error(t('رقم الحاوية مسجّل مسبقًا.', 'The container number already exists.'));
       }
       const lines = Object.entries(quantities).flatMap(([entryId, values]) => {
@@ -69,8 +72,11 @@ export function ShipmentEditor({ container, data, lang, close, save }: {
         if (!selected.length) throw new Error(t('حدد كمية أو أزل الفاتورة من الحمولة.', 'Enter a quantity or remove the invoice from the manifest.'));
         return selected;
       });
+      if (status !== 'preparing' && !lines.length && !data.loads.some(load => load.container_id === container?.id)) {
+        throw new Error(t('أضف حمولة قبل تسجيل الشحن.', 'Add cargo before recording shipment.'));
+      }
       identity.current ??= crypto.randomUUID();
-      await save({ type: 'manifest', value: { id: identity.current, name, destination, booking: container?.booking ?? field('booking') },
+      await save({ type: 'manifest', value: { id: identity.current, name, destination, booking: field('booking'), status, gbp_rate: gbpRate },
         lines, expected: container?.manifest_revision });
       close();
     } catch (problem) {
@@ -82,16 +88,23 @@ export function ShipmentEditor({ container, data, lang, close, save }: {
   const unselected = invoices.filter(({ entry }) => !quantities[entry.id]);
   return <dialog ref={dialog} className="editor purchase-editor" aria-labelledby="shipment-title" onCancel={event => { event.preventDefault(); if (!busy) close(); }}>
     <header className="dialog-head">
-      <h2 id="shipment-title">{container ? t('تعديل الحمولة', 'Edit manifest') : t('حاوية جديدة', 'New container')}</h2>
+      <h2 id="shipment-title">{container ? t('تعديل الحاوية', 'Edit container') : t('حاوية جديدة', 'New container')}</h2>
       <button type="button" className="icon-btn" aria-label={t('إغلاق', 'Close')} onClick={close} disabled={busy}><X size={19} /></button>
     </header>
     <form onSubmit={submit}>
       <fieldset className="purchase-fields" disabled={busy}>
-        {container ? <strong><bdi>{container.name}</bdi></strong> : <div className="form-grid">
-          <Field title={t('رقم الحاوية', 'Container number')}><input name="name" maxLength={80} required /></Field>
-          <Field title={t('الوجهة', 'Destination')}><input name="destination" maxLength={120} required /></Field>
-          <Field title={t('رقم الحجز (اختياري)', 'Booking reference (optional)')} wide><input name="booking" maxLength={100} /></Field>
-        </div>}
+        <div className="form-grid">
+          <Field title={t('رقم الحاوية', 'Container number')}><input name="name" defaultValue={container?.name} maxLength={80} required /></Field>
+          <Field title={t('الوجهة', 'Destination')}><input name="destination" defaultValue={container?.destination} maxLength={120} required /></Field>
+          <Field title={t('رقم الحجز (اختياري)', 'Booking reference (optional)')}><input name="booking" defaultValue={container?.booking} maxLength={100} /></Field>
+          <Field title={t('سعر الجنيه بالريال', 'SAR per British pound')}>
+            <input name="gbp_rate" type="number" inputMode="decimal" min="0.000001" max="10000" step="0.000001"
+              defaultValue={container?.gbp_rate ?? ''} />
+          </Field>
+          {container && <Field title={t('حالة الحاوية', 'Container status')} wide><select name="status" defaultValue={container.status}>
+            {Object.entries(containerStatusLabels).map(([value, labels]) => <option key={value} value={value}>{t(labels[0], labels[1])}</option>)}
+          </select></Field>}
+        </div>
         <div className="manifest-picker">
           <Field title={t('إضافة فاتورة إلى الحمولة', 'Add invoice to manifest')}>
             <select value="" disabled={!unselected.length} onChange={event => addInvoice(event.target.value)}>

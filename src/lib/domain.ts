@@ -43,8 +43,14 @@ export const entrySchema = z.object({
 });
 export type Entry = z.infer<typeof entrySchema>;
 export type Product = { id: string; name: string; category: string; unit: string; expiry: string | null; created_at: string };
-export type Container = { id: string; name: string; destination: string; booking: string; status: 'preparing' | 'shipped' | 'arrived'; created_at: string; manifest_revision: number };
-export type ContainerDraft = Pick<Container, 'id' | 'name' | 'destination' | 'booking'>;
+export const containerStatusLabels = {
+  preparing: ['قيد التجهيز', 'Preparing'], shipped: ['تم الشحن', 'Shipped'], arrived: ['وصلت', 'Arrived'],
+} as const;
+export type Container = {
+  id: string; name: string; destination: string; booking: string; status: keyof typeof containerStatusLabels;
+  created_at: string; manifest_revision: number; gbp_rate: number | null;
+};
+export type ContainerDraft = Pick<Container, 'id' | 'name' | 'destination' | 'booking' | 'status' | 'gbp_rate'>;
 export type InvoiceLoadDraft = { entry_id: string; item_index: number; quantity: number };
 export type InvoiceLoad = InvoiceLoadDraft & { container_id: string; cost_sar: number };
 export type LoadDraft = { id: string; container_id: string; product_id: string; quantity: number; created_at: string };

@@ -1,10 +1,22 @@
 'use client';
 
 import { ArrowLeft, Download, Pencil, Plus, Ship } from 'lucide-react';
-import { inventory, money, type Container, type Dataset, type InvoiceLoad, type Lang } from '@/lib/domain';
+import { containerStatusLabels, inventory, money, type Container, type Dataset, type InvoiceLoad, type Lang } from '@/lib/domain';
+import { containerCost } from '@/lib/manifest';
 import { translate, type Editor } from './forms';
-import { containerCost } from './reports';
 import { Empty } from './views';
+
+function ContainerTotal({ total, gbp, lang }: { total: number; gbp: number | null; lang: Lang }) {
+  const t = translate(lang);
+  return <div className="split-line total-line">
+    <strong>{t('الإجمالي', 'Total')}</strong>
+    <strong className="container-total">
+      <bdi>{money(total, 'SAR', lang)}</bdi>
+      {gbp === null ? <bdi className="muted" title={t('أدخل سعر الجنيه من تعديل الحاوية', 'Set the pound rate in Edit container')}>GBP —</bdi>
+        : <bdi>{money(gbp, 'GBP', lang)}</bdi>}
+    </strong>
+  </div>;
+}
 
 export function Shipments({ data, lang, selected, select, edit, advance, updating, onReceipt }: {
   data: Dataset; lang: Lang; selected: string | null; select: (id: string | null) => void;
@@ -12,16 +24,24 @@ export function Shipments({ data, lang, selected, select, edit, advance, updatin
   onReceipt: (path: string) => void;
 }) {
   const t = translate(lang);
-  const status = { preparing: t('قيد التجهيز', 'Preparing'), shipped: t('تم الشحن', 'Shipped'), arrived: t('وصلت', 'Arrived') };
+  const status = (value: Container['status']) => t(containerStatusLabels[value][0], containerStatusLabels[value][1]);
+  const editLabel = t('تعديل الحاوية', 'Edit container');
   const container = data.containers.find(row => row.id === selected);
   if (!data.containers.length) return <section className="panel"><Empty>{t('لا توجد حاويات.', 'No containers.')}</Empty></section>;
-  if (!container) return <div className="cards">{data.containers.map(row => <article className="panel record-card" key={row.id}>
-    <div className="card-heading"><span className="metric-icon blue"><Ship size={21} /></span><span className="tag">{status[row.status]}</span></div>
-    <h2><bdi>{row.name}</bdi></h2><p>{row.destination}</p>
-    <button className="btn secondary" onClick={() => select(row.id)}>{t('عرض الحاوية', 'Open container')}</button>
-  </article>)}</div>;
+  if (!container) return <div className="cards">{data.containers.map(row => {
+    const { total, gbp } = containerCost(data, row);
+    return <article className="panel record-card" key={row.id}>
+      <div className="card-heading"><span className="metric-icon blue"><Ship size={21} /></span><span className="tag">{status(row.status)}</span></div>
+      <h2><bdi>{row.name}</bdi></h2><p>{row.destination}</p>
+      <ContainerTotal total={total} gbp={gbp} lang={lang} />
+      <div className="actions">
+        <button className="btn secondary" onClick={() => select(row.id)}>{t('عرض الحاوية', 'Open container')}</button>
+        <button className="btn secondary" onClick={() => edit({ type: 'manifest', container: row })}><Pencil size={15} />{editLabel}</button>
+      </div>
+    </article>;
+  })}</div>;
 
-  const cost = containerCost(data, container.id);
+  const cost = containerCost(data, container);
   const invoiceGroups = new Map<string, InvoiceLoad[]>();
   for (const line of cost.invoiceLines) {
     const group = invoiceGroups.get(line.entry_id);
@@ -35,14 +55,12 @@ export function Shipments({ data, lang, selected, select, edit, advance, updatin
   return <section className="panel record-card shipment-detail">
     <div className="card-heading">
       <button className="btn secondary" onClick={() => select(null)}><ArrowLeft className="shipment-back" size={15} />{t('كل الحاويات', 'All containers')}</button>
-      <span className="tag">{status[container.status]}</span>
+      <span className="tag">{status(container.status)}</span>
     </div>
     <h2><bdi>{container.name}</bdi></h2>
     <p>{container.destination}{container.booking && <> · <bdi>{container.booking}</bdi></>}</p>
     <div className="actions">
-      {preparing && <button className="btn primary" onClick={() => edit({ type: 'manifest', container })}>
-        <Pencil size={15} />{loaded ? t('تعديل الحمولة', 'Edit manifest') : t('إضافة فواتير', 'Add invoices')}
-      </button>}
+      <button className="btn primary" onClick={() => edit({ type: 'manifest', container })}><Pencil size={15} />{editLabel}</button>
       {canLoadLegacy && <button className="btn secondary" onClick={() => edit({ type: 'load', container })}>{t('تحميل أصناف سابقة', 'Load legacy stock')}</button>}
       <button className="btn secondary" onClick={() => edit({ type: 'entry', kind: 'expense', expenseOnly: true, container })}>
         <Plus size={15} />{t('إضافة تكلفة', 'Add cost')}
@@ -76,7 +94,7 @@ export function Shipments({ data, lang, selected, select, edit, advance, updatin
     <div className="manifest-picker">
       <div className="split-line"><span>{t('تكلفة المنتجات عند التحميل', 'Product cost at loading')}</span><bdi>{money(cost.goods, 'SAR', lang)}</bdi></div>
       <div className="split-line"><span>{t('مصاريف الحاوية', 'Container expenses')}</span><bdi>{money(cost.shipping, 'SAR', lang)}</bdi></div>
-      <div className="split-line total-line"><strong>{t('الإجمالي', 'Total')}</strong><strong><bdi>{money(cost.total, 'SAR', lang)}</bdi></strong></div>
+      <ContainerTotal total={cost.total} gbp={cost.gbp} lang={lang} />
     </div>
   </section>;
 }
