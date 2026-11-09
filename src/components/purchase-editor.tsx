@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Check, Plus, ScanText, Trash2, X } from 'lucide-react';
-import { currencies, minor, money, preparePurchaseInvoice, today, type Currency, type Dataset, type Entry, type Lang } from '@/lib/domain';
+import { currencies, minor, preparePurchaseInvoice, today, type Currency, type Dataset, type Entry, type Lang } from '@/lib/domain';
+import { MoneyAmount, PoundEquivalent } from './money-amount';
 import { invoiceLineTotal, invoiceTotals, invoiceVatPercent, maxInvoiceItems } from '@/lib/purchases';
 import { receiptAccept, receiptExtension } from '@/lib/receipt';
 import { errorMessage, Field, translate, type PurchaseEditor, type RecordChange } from './forms';
@@ -24,6 +25,7 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
   const [date, setDate] = useState(original?.date ?? today());
   const [currency, setCurrency] = useState<Currency>(original?.currency ?? 'SAR');
   const [partial, setPartial] = useState(Boolean(original && original.paid < original.amount));
+  const [paid, setPaid] = useState(String(original ? original.paid / 100 : 0));
   const [attachment, setAttachment] = useState<File | null>(null);
   const [reading, setReading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -136,16 +138,18 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
                 <Field title={t('الوحدة', 'Unit')}><input value={item.unit} onChange={event => updateItem(item.id, 'unit', event.target.value)}
                   placeholder={t('مثال: كرتون', 'e.g. carton')} maxLength={30} required /></Field>
                 <Field title={t('سعر الوحدة قبل الضريبة', 'Unit price before VAT')}><input type="number" inputMode="decimal" min="0" max="1000000000" step="0.01"
-                  value={item.price} onChange={event => updateItem(item.id, 'price', event.target.value)} required /></Field>
+                  value={item.price} onChange={event => updateItem(item.id, 'price', event.target.value)} required />
+                  {currency === 'SAR' && item.price && <PoundEquivalent amount={invoiceItems[index].unit_price} lang={lang} />}
+                </Field>
               </div>
-              <div className="purchase-item-total"><span>{t('مجموع المنتج', 'Line total')}</span><bdi>{total === null ? '—' : money(total, currency, lang)}</bdi></div>
+              <div className="purchase-item-total"><span>{t('مجموع المنتج', 'Line total')}</span><MoneyAmount amount={total} currency={currency} lang={lang} /></div>
             </section>;
           })}
         </div>
         <div className="purchase-totals" aria-live="polite">
-          <div><span>{t('قبل الضريبة', 'Subtotal before VAT')}</span><bdi>{totals ? money(totals.subtotal, currency, lang) : '—'}</bdi></div>
-          <div><span>{t('الضريبة', 'VAT')} <bdi>{invoiceVatPercent}%</bdi></span><bdi>{totals ? money(totals.vat, currency, lang) : '—'}</bdi></div>
-          <div><strong>{t('الإجمالي شامل الضريبة', 'Total including VAT')}</strong><strong><bdi>{totals ? money(totals.total, currency, lang) : '—'}</bdi></strong></div>
+          <div><span>{t('قبل الضريبة', 'Subtotal before VAT')}</span><MoneyAmount amount={totals?.subtotal ?? null} currency={currency} lang={lang} /></div>
+          <div><span>{t('الضريبة', 'VAT')} <bdi>{invoiceVatPercent}%</bdi></span><MoneyAmount amount={totals?.vat ?? null} currency={currency} lang={lang} /></div>
+          <div><strong>{t('الإجمالي شامل الضريبة', 'Total including VAT')}</strong><strong><MoneyAmount amount={totals?.total ?? null} currency={currency} lang={lang} /></strong></div>
         </div>
         <details className="debt-more" open={partial || undefined}>
           <summary>{t('مرفق أو دفعة جزئية', 'Attachment or partial payment')}</summary>
@@ -160,7 +164,9 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
               {scanStatus && <p className="muted" role="status">{scanStatus}</p>}</div>}
             <label className="field-wide check-field"><input type="checkbox" checked={partial} onChange={event => setPartial(event.target.checked)} />{t('دفعت جزءًا من الفاتورة أو لم أدفع بعد', 'I paid part of the invoice or have not paid yet')}</label>
             {partial && <Field title={t('المبلغ المدفوع', 'Amount paid')} wide><input name="paid" type="number" inputMode="decimal" min="0"
-              max={totals ? totals.total / 100 : undefined} step="0.01" defaultValue={original ? original.paid / 100 : 0} required /></Field>}
+              max={totals ? totals.total / 100 : undefined} step="0.01" value={paid} onChange={event => setPaid(event.target.value)} required />
+              {currency === 'SAR' && paid && <PoundEquivalent amount={minor(paid)} lang={lang} />}
+            </Field>}
           </div>
         </details>
       </fieldset>

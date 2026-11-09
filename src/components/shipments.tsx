@@ -1,20 +1,17 @@
 'use client';
 
 import { ArrowLeft, Download, Pencil, Plus, Ship } from 'lucide-react';
-import { containerStatusLabels, inventory, money, type Container, type Dataset, type InvoiceLoad, type Lang } from '@/lib/domain';
+import { containerStatusLabels, inventory, type Container, type Dataset, type InvoiceLoad, type Lang } from '@/lib/domain';
+import { MoneyAmount } from './money-amount';
 import { containerCost } from '@/lib/manifest';
 import { translate, type Editor } from './forms';
 import { Empty } from './views';
 
-function ContainerTotal({ total, gbp, lang }: { total: number; gbp: number | null; lang: Lang }) {
+function ContainerTotal({ total, lang }: { total: number; lang: Lang }) {
   const t = translate(lang);
   return <div className="split-line total-line">
     <strong>{t('الإجمالي', 'Total')}</strong>
-    <strong className="container-total">
-      <bdi>{money(total, 'SAR', lang)}</bdi>
-      {gbp === null ? <bdi className="muted" title={t('أدخل سعر الجنيه من تعديل الحاوية', 'Set the pound rate in Edit container')}>GBP —</bdi>
-        : <bdi>{money(gbp, 'GBP', lang)}</bdi>}
-    </strong>
+    <strong><MoneyAmount amount={total} lang={lang} /></strong>
   </div>;
 }
 
@@ -29,11 +26,11 @@ export function Shipments({ data, lang, selected, select, edit, advance, updatin
   const container = data.containers.find(row => row.id === selected);
   if (!data.containers.length) return <section className="panel"><Empty>{t('لا توجد حاويات.', 'No containers.')}</Empty></section>;
   if (!container) return <div className="cards">{data.containers.map(row => {
-    const { total, gbp } = containerCost(data, row);
+    const { total } = containerCost(data, row);
     return <article className="panel record-card" key={row.id}>
       <div className="card-heading"><span className="metric-icon blue"><Ship size={21} /></span><span className="tag">{status(row.status)}</span></div>
       <h2><bdi>{row.name}</bdi></h2><p>{row.destination}</p>
-      <ContainerTotal total={total} gbp={gbp} lang={lang} />
+      <ContainerTotal total={total} lang={lang} />
       <div className="actions">
         <button className="btn secondary" onClick={() => select(row.id)}>{t('عرض الحاوية', 'Open container')}</button>
         <button className="btn secondary" onClick={() => edit({ type: 'manifest', container: row })}><Pencil size={15} />{editLabel}</button>
@@ -92,9 +89,9 @@ export function Shipments({ data, lang, selected, select, edit, advance, updatin
       </section>}
     </div>
     <div className="manifest-picker">
-      <div className="split-line"><span>{t('تكلفة المنتجات عند التحميل', 'Product cost at loading')}</span><bdi>{money(cost.goods, 'SAR', lang)}</bdi></div>
-      <div className="split-line"><span>{t('مصاريف الحاوية', 'Container expenses')}</span><bdi>{money(cost.shipping, 'SAR', lang)}</bdi></div>
-      <ContainerTotal total={cost.total} gbp={cost.gbp} lang={lang} />
+      <div className="split-line"><span>{t('تكلفة المنتجات عند التحميل', 'Product cost at loading')}</span><MoneyAmount amount={cost.goods} lang={lang} /></div>
+      <div className="split-line"><span>{t('مصاريف الحاوية', 'Container expenses')}</span><MoneyAmount amount={cost.shipping} lang={lang} /></div>
+      <ContainerTotal total={cost.total} lang={lang} />
     </div>
   </section>;
 }

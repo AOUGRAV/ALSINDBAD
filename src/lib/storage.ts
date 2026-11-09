@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { type Dataset, type Entry, type Container, type ContainerDraft, type InvoiceLoadDraft, type LoadDraft } from './domain';
 import { receiptExtension } from './receipt';
+import { type DebtMovement, type MovementAllocation } from './debt-accounts';
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 let client: SupabaseClient | null = null;
@@ -25,6 +26,12 @@ export async function loadData(): Promise<Dataset> {
 }
 export async function saveEntry(entry: Entry) {
   const { error } = await supabase().rpc('record_entry', { payload: entryPayload(entry) });
+  if (error) throw error;
+}
+export async function saveDebtMovement(movement: DebtMovement, allocations: MovementAllocation[], receiptPath?: string) {
+  const { error } = await supabase().rpc('record_debt_movement', {
+    payload: { ...movement, receipt_path: receiptPath ?? null }, expected_allocations: allocations,
+  });
   if (error) throw error;
 }
 export async function reviseEntry(original: Entry, reason: string, replacement: Entry | null) {

@@ -24,6 +24,7 @@ export const entrySchema = z.object({
   receipt_path: z.string().nullable(), container_id: z.uuid().nullable(), created_at: z.string(),
   invoice_number: z.string().trim().min(1).max(80).nullish(),
   invoice_items: z.array(invoiceItemSchema).min(1).max(maxInvoiceItems).nullish(),
+  debt_movement_id: z.uuid().nullish(),
   opening: z.boolean().default(false), revision: z.number().int().positive().default(1), voided_at: z.string().nullable().default(null),
 }).superRefine((v, ctx) => {
   const issue = (message: string) => ctx.addIssue({ code: 'custom', message });
@@ -48,9 +49,9 @@ export const containerStatusLabels = {
 } as const;
 export type Container = {
   id: string; name: string; destination: string; booking: string; status: keyof typeof containerStatusLabels;
-  created_at: string; manifest_revision: number; gbp_rate: number | null;
+  created_at: string; manifest_revision: number;
 };
-export type ContainerDraft = Pick<Container, 'id' | 'name' | 'destination' | 'booking' | 'status' | 'gbp_rate'>;
+export type ContainerDraft = Pick<Container, 'id' | 'name' | 'destination' | 'booking' | 'status'>;
 export type InvoiceLoadDraft = { entry_id: string; item_index: number; quantity: number };
 export type InvoiceLoad = InvoiceLoadDraft & { container_id: string; cost_sar: number };
 export type LoadDraft = { id: string; container_id: string; product_id: string; quantity: number; created_at: string };

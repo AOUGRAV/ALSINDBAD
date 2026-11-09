@@ -2,8 +2,10 @@
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Check, Paperclip, ScanText, X } from 'lucide-react';
-import { currencies, kinds, kindLabels, debtBalance, inventory, minor, money, today, toSar, validateEntry, validateLoad, type Container, type ContainerDraft, type Currency, type Dataset, type Entry, type InvoiceLoadDraft, type Kind, type Lang, type LoadDraft } from '@/lib/domain';
+import { currencies, kinds, kindLabels, debtBalance, inventory, minor, today, toSar, validateEntry, validateLoad, type Container, type ContainerDraft, type Currency, type Dataset, type Entry, type InvoiceLoadDraft, type Kind, type Lang, type LoadDraft } from '@/lib/domain';
+import { MoneyAmount, PoundEquivalent } from './money-amount';
 import { receiptAccept, receiptExtension } from '@/lib/receipt';
+import { type DebtMovement, type MovementAllocation, type MovementDirection } from '@/lib/debt-accounts';
 
 export const translate = (lang: Lang) => (ar: string, en: string) => lang === 'ar' ? ar : en;
 export const errorMessage = (error: unknown) => error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error);
@@ -12,10 +14,12 @@ const newRecord = () => ({ id: crypto.randomUUID(), created_at: new Date().toISO
 export type RecordEditor = { type: 'entry'; kind?: Kind; container?: Container; original?: Entry; expenseOnly?: boolean } |
   { type: 'load'; container: Container } |
   { type: 'history'; original: Entry } | { type: 'void'; original: Entry; debtItem?: 'debt' | 'payment' };
-export type DebtEditor = { type: 'debt'; original?: Entry } | { type: 'settlement'; debt: Entry; original?: Entry };
+export type DebtEditor = { type: 'debt'; original?: Entry } | { type: 'settlement'; debt: Entry; original?: Entry } |
+  { type: 'movement'; original?: never; party?: string; direction?: MovementDirection; currency?: Currency; scope?: Entry['scope'] };
 export type PurchaseEditor = { type: 'purchase'; original?: Entry };
 export type Editor = RecordEditor | DebtEditor | PurchaseEditor | { type: 'manifest'; container?: Container };
 export type RecordChange = { type: 'entry'; value: Entry; receipt?: File; original?: Entry; reason: string } |
+  { type: 'movement'; value: DebtMovement; allocations: MovementAllocation[]; receipt?: File } |
   { type: 'manifest'; value: ContainerDraft; lines: InvoiceLoadDraft[]; expected?: number } | { type: 'load'; value: LoadDraft } |
   { type: 'void'; original: Entry; reason: string };
 type Scan = Awaited<ReturnType<typeof import('@/lib/scan-invoice').scanInvoice>>;
@@ -43,6 +47,7 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
   const [party, setParty] = useState(original?.party ?? '');
   const [description, setDescription] = useState(original?.description ?? (debt ? t(...kindLabels[kind]) : ''));
   const [amount, setAmount] = useState(original ? (original.amount / 100).toFixed(2) : '');
+  const [paid, setPaid] = useState(original ? (original.paid / 100).toFixed(2) : '');
   const [rate, setRate] = useState(original ? String(original.rate) : '');
   const [file, setFile] = useState<File | null>(null);
   const [scan, setScan] = useState<Scan | null>(null);
@@ -147,7 +152,7 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
     {currency !== 'SAR' && <Field title={t('سعر صرف 1', 'SAR per 1') + ' ' + currency + (lang === 'ar' ? ' بالريال' : '')}><input type="number" inputMode="decimal" min="0.000001" max="10000" step="0.000001" value={rate} onChange={e => setRate(e.target.value)} placeholder={debt ? String(debt.rate) : undefined} required /></Field>}
     <Field title={t('طريقة الدفع', 'Payment method')}><select name="method" defaultValue={original?.method ?? (expenseOnly ? 'cash' : 'bank')}><option value="bank">{t('تحويل بنكي', 'Bank transfer')}</option><option value="cash">{t('نقدًا', 'Cash')}</option><option value="card">{t('بطاقة', 'Card')}</option></select></Field>
     {kind === 'expense' && scope === 'business' && data.containers.length > 0 && <Field title={t('ربط بحاوية (اختياري)', 'Link to container (optional)')}><select name="container" defaultValue={original?.container_id ?? entry?.container?.id ?? ''}><option value="">{t('بدون حاوية', 'No container')}</option>{data.containers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>}
-    {currency !== 'SAR' && Number(amount) > 0 && Number(amount) <= 1000000000 && Number(rate) > 0 && Number(rate) <= 10000 && <p className="form-note field-wide">{t('ما يعادله بالريال', 'SAR equivalent')}: <bdi>{money(toSar(minor(amount), Number(rate)), 'SAR', lang)}</bdi></p>}
+    {currency !== 'SAR' && Number(amount) > 0 && Number(amount) <= 1000000000 && Number(rate) > 0 && Number(rate) <= 10000 && <p className="form-note field-wide">{t('ما يعادله بالريال', 'SAR equivalent')}: <MoneyAmount amount={toSar(minor(amount), Number(rate))} lang={lang} /></p>}
     <Field title={original?.receipt_path ? t('استبدال الفاتورة المرفقة (اختياري)', 'Replace attached receipt (optional)') : t('فاتورة أو إيصال (اختياري)', 'Invoice or receipt (optional)')} wide>
       <div className="file-field"><Paperclip size={16} /><input name="receipt" type="file" accept={receiptAccept} disabled={unavailable} onChange={event => {
         setFile(event.target.files?.[0] ?? null);
@@ -161,6 +166,7 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
       {scan && Object.values(scan.fields).some(Boolean) && <div className="scan-result">
         <strong>{t('البيانات المقترحة', 'Suggested fields')}</strong>
         <p>{[scan.fields.supplier, scan.fields.number, scan.fields.date, [scan.fields.total, scan.fields.currency].filter(Boolean).join(' ')].filter(Boolean).join(' · ')}</p>
+        {scan.fields.total && (scan.fields.currency ?? currency) === 'SAR' && <PoundEquivalent amount={minor(scan.fields.total)} lang={lang} />}
         <button type="button" className="btn secondary" disabled={unavailable} onClick={applyInvoice}>{t('استخدام البيانات المقترحة', 'Apply suggestions')}</button>
       </div>}
       {scan?.text && <details className="detail"><summary>{t('النص المقروء', 'Recognized text')} · {scan.pagesRead}/{scan.pageCount}</summary><pre dir="auto">{scan.text}</pre></details>}
@@ -180,15 +186,15 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
         <p>{item.reason}</p>
         <details><summary>{t('الحركة قبل التغيير', 'Transaction before the change')}</summary>
           <p>{item.previous.description} · {item.previous.party} · {item.previous.category}</p>
-          <p><bdi>{item.previous.date}</bdi> · <bdi>{money(item.previous.amount, item.previous.currency, lang)}</bdi> · {t('سعر الصرف', 'FX rate')} <bdi>{item.previous.rate}</bdi></p>
-          {item.previous.kind === 'purchase' && <p>{t('المدفوع', 'Paid')} <bdi>{money(item.previous.paid, item.previous.currency, lang)}</bdi> · {t('الكمية', 'Quantity')} {item.previous.quantity}</p>}
+          <p><bdi>{item.previous.date}</bdi> · <MoneyAmount amount={item.previous.amount} currency={item.previous.currency} lang={lang} /> · {t('سعر الصرف', 'FX rate')} <bdi>{item.previous.rate}</bdi></p>
+          {item.previous.kind === 'purchase' && <p>{t('المدفوع', 'Paid')} <MoneyAmount amount={item.previous.paid} currency={item.previous.currency} lang={lang} /> · {t('الكمية', 'Quantity')} {item.previous.quantity}</p>}
           {item.previous.receipt_path && <button className="btn secondary" type="button" onClick={() => onReceipt(item.previous.receipt_path!)}>{t('تنزيل الفاتورة السابقة', 'Download previous receipt')}</button>}
         </details>
       </article>)}
     </div> : <form onSubmit={submit}>
       <div className="form-grid">
         {editor.type === 'entry' && <>
-          {debt ? <p className="field-wide form-note">{debt.party} · {t('المتاح لهذه الدفعة', 'Available for this payment')}: <bdi>{money(remaining, debt.currency, lang)}</bdi></p> : !expenseOnly &&
+          {debt ? <p className="field-wide form-note">{debt.party} · {t('المتاح لهذه الدفعة', 'Available for this payment')}: <MoneyAmount amount={remaining} currency={debt.currency} lang={lang} /></p> : !expenseOnly &&
             <Field title={t('نوع العملية', 'Transaction type')}><select value={kind} onChange={event => {
               const selected = event.target.value as Kind;
               if (selected === 'purchase' && !original) openPurchase();
@@ -208,9 +214,13 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
           {!debt && kind !== 'purchase' && <Field title={kind === 'expense' ? t('نوع المصروف', 'Expense category') : t('التصنيف', 'Category')}><input name="category" defaultValue={original?.category} maxLength={80} list="categories" required />
             <datalist id="categories">{categories.map(value => <option key={value} value={value} />)}</datalist>
           </Field>}
-          <Field title={expenseOnly ? t('المبلغ', 'Amount') + ' (' + currency + ')' : t('المبلغ الإجمالي', 'Total amount')}><input type="number" inputMode="decimal" min="0.01" max={debt ? remaining / 100 : 1000000000} step="0.01" value={amount} onChange={e => setAmount(e.target.value)} required /></Field>
+          <Field title={expenseOnly ? t('المبلغ', 'Amount') + ' (' + currency + ')' : t('المبلغ الإجمالي', 'Total amount')}><input type="number" inputMode="decimal" min="0.01" max={debt ? remaining / 100 : 1000000000} step="0.01" value={amount} onChange={e => setAmount(e.target.value)} required />
+            {currency === 'SAR' && amount && <PoundEquivalent amount={minor(amount)} lang={lang} />}
+          </Field>
           {expenseOnly && <Field title={t('على ماذا صُرف؟', 'What was it spent on?')} wide><input name="description" value={description} onChange={event => setDescription(event.target.value)} maxLength={500} required /></Field>}
-          {kind === 'purchase' && <Field title={t('المبلغ المدفوع', 'Amount paid')}><input name="paid" defaultValue={original ? original.paid / 100 : undefined} type="number" inputMode="decimal" min="0" max={amount || undefined} step="0.01" required /></Field>}
+          {kind === 'purchase' && <Field title={t('المبلغ المدفوع', 'Amount paid')}><input name="paid" value={paid} onChange={e => setPaid(e.target.value)} type="number" inputMode="decimal" min="0" max={amount || undefined} step="0.01" required />
+            {currency === 'SAR' && paid && <PoundEquivalent amount={minor(paid)} lang={lang} />}
+          </Field>}
           {expenseOnly ? <details className="debt-more field-wide" open={Boolean(entry?.container || original?.container_id) || undefined}
             onInvalidCapture={event => { event.currentTarget.open = true; }}>
             <summary>{t('تفاصيل اختيارية', 'Optional details')}</summary>
@@ -224,7 +234,7 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
           <Field title={t('الكمية المحملة', 'Quantity loaded')}><input name="quantity" type="number" min="1" max="100000000" step="1" inputMode="numeric" required /></Field>
         </>}
         {editor.type === 'void' && <>
-          <p className="form-note field-wide">{debtItem ? editor.original.party : editor.original.description} · <bdi>{money(editor.original.amount, editor.original.currency, lang)}</bdi></p>
+          <p className="form-note field-wide">{debtItem ? editor.original.party : editor.original.description} · <MoneyAmount amount={editor.original.amount} currency={editor.original.currency} lang={lang} /></p>
           <p className="field-wide muted">{debtItem === 'debt'
             ? t('يُحذف الدين من القائمة والأرصدة، وتبقى نسخة في سجل التغييرات.', 'The debt is removed from the list and balances, and retained in the change history.')
             : debtItem === 'payment'

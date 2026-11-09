@@ -51,8 +51,6 @@ export function ShipmentEditor({ container, data, lang, close, save }: {
       const name = field('name');
       const destination = field('destination');
       const status = container ? field('status') as Container['status'] : 'preparing';
-      const rate = field('gbp_rate');
-      const gbpRate = rate ? Number(rate) : null;
       if (!name || !destination) throw new Error(t('أدخل رقم الحاوية والوجهة.', 'Enter the container number and destination.'));
       if (data.containers.some(row => row.id !== identity.current && row.name.toLowerCase() === name.toLowerCase())) {
         throw new Error(t('رقم الحاوية مسجّل مسبقًا.', 'The container number already exists.'));
@@ -76,7 +74,7 @@ export function ShipmentEditor({ container, data, lang, close, save }: {
         throw new Error(t('أضف حمولة قبل تسجيل الشحن.', 'Add cargo before recording shipment.'));
       }
       identity.current ??= crypto.randomUUID();
-      await save({ type: 'manifest', value: { id: identity.current, name, destination, booking: field('booking'), status, gbp_rate: gbpRate },
+      await save({ type: 'manifest', value: { id: identity.current, name, destination, booking: field('booking'), status },
         lines, expected: container?.manifest_revision });
       close();
     } catch (problem) {
@@ -97,11 +95,7 @@ export function ShipmentEditor({ container, data, lang, close, save }: {
           <Field title={t('رقم الحاوية', 'Container number')}><input name="name" defaultValue={container?.name} maxLength={80} required /></Field>
           <Field title={t('الوجهة', 'Destination')}><input name="destination" defaultValue={container?.destination} maxLength={120} required /></Field>
           <Field title={t('رقم الحجز (اختياري)', 'Booking reference (optional)')}><input name="booking" defaultValue={container?.booking} maxLength={100} /></Field>
-          <Field title={t('سعر الجنيه بالريال', 'SAR per British pound')}>
-            <input name="gbp_rate" type="number" inputMode="decimal" min="0.000001" max="10000" step="0.000001"
-              defaultValue={container?.gbp_rate ?? ''} />
-          </Field>
-          {container && <Field title={t('حالة الحاوية', 'Container status')} wide><select name="status" defaultValue={container.status}>
+          {container && <Field title={t('حالة الحاوية', 'Container status')}><select name="status" defaultValue={container.status}>
             {Object.entries(containerStatusLabels).map(([value, labels]) => <option key={value} value={value}>{t(labels[0], labels[1])}</option>)}
           </select></Field>}
         </div>

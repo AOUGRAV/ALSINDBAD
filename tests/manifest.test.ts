@@ -38,19 +38,17 @@ test('a categorized personal expense can be recorded without a payee', () => {
   assert.throws(() => validateEntry({ ...expense, kind: 'funding' }, emptyData()), /Party is required/);
 });
 
-test('container totals convert the sum of loaded products and expenses at the saved GBP rate', () => {
+test('container totals convert the sum of loaded products and expenses at the workspace GBP rate', () => {
   const data = emptyData();
   const container: Container = { id: randomUUID(), name: 'QA-101', destination: 'UK', booking: '',
-    status: 'shipped', created_at: fields.created_at, manifest_revision: 1, gbp_rate: null };
+    status: 'shipped', created_at: fields.created_at, manifest_revision: 1 };
   data.containers.push(container);
   assert.equal(containerCost(data, container).gbp, 0);
   data.invoice_loads.push({ container_id: container.id, entry_id: randomUUID(), item_index: 0, quantity: 1, cost_sar: 20000 });
   const expense = validateEntry({ ...fields, kind: 'expense', scope: 'business', party: '', amount: 3500, paid: 3500,
     product_id: null, quantity: 0, settles_id: null, container_id: container.id, receipt_path: null }, data);
   data.entries.push(expense, { ...expense, id: randomUUID(), voided_at: fields.created_at });
-  assert.equal(containerCost(data, container).gbp, null);
-  const total = containerCost(data, { ...container, gbp_rate: 4.7 });
+  const total = containerCost(data, container);
   assert.equal(total.total, 23500);
-  assert.equal(total.gbp, 5000);
-  assert.equal(containerCost(data, { ...container, gbp_rate: 4 }).gbp, 5875);
+  assert.equal(total.gbp, 4700);
 });

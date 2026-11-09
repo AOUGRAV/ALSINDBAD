@@ -3,13 +3,15 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { ChartNoAxesCombined, CircleDollarSign, ClipboardList, Globe2, LayoutDashboard, LockKeyhole, LogOut, MapPin, Menu, Plus, ReceiptText, RefreshCw, Ship, ShoppingBag, X } from 'lucide-react';
 import { activeEntries, emptyData, type Container, type Dataset, type Lang } from '@/lib/domain';
-import { advanceContainer, configured, downloadReceipt, loadData, reviseEntry, saveContainerManifest, saveEntry, saveLoad, supabase, uploadReceipt } from '@/lib/storage';
+import { debtAccountKey } from '@/lib/debt-accounts';
+import { advanceContainer, configured, downloadReceipt, loadData, reviseEntry, saveContainerManifest, saveDebtMovement, saveEntry, saveLoad, supabase, uploadReceipt } from '@/lib/storage';
 import { EditorDialog, errorMessage, translate, type Editor, type RecordChange } from './forms';
 import { DebtEditorDialog } from './debt-editor';
+import { DebtAccounts } from './debt-accounts';
 import { PurchaseEditorDialog } from './purchase-editor';
 import { ShipmentEditor } from './shipment-editor';
 import { Shipments } from './shipments';
-import { Dashboard, Debts, Ledger } from './views';
+import { Dashboard, Ledger } from './views';
 import { Reports } from './reports';
 
 const navigation = [
@@ -40,6 +42,7 @@ export default function Workspace() {
   const [section, setSection] = useState<Section>('overview');
   const [purchaseView, setPurchaseView] = useState<'purchase' | 'expense'>('purchase');
   const [containerId, setContainerId] = useState<string | null>(null);
+  const [debtAccountId, setDebtAccountId] = useState<string | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [menu, setMenu] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -114,6 +117,7 @@ export default function Workspace() {
       setSection('overview');
       setPurchaseView('purchase');
       setContainerId(null);
+      setDebtAccountId(null);
       setEditor(null);
       setMenu(false);
       setNotice('');
@@ -132,6 +136,10 @@ export default function Workspace() {
       if (change.receipt) entry.receipt_path = await uploadReceipt(change.receipt, entry.id);
       if (change.original) await reviseEntry(change.original, change.reason, entry);
       else await saveEntry(entry);
+    } else if (change.type === 'movement') {
+      const path = change.receipt ? await uploadReceipt(change.receipt, change.value.id) : undefined;
+      await saveDebtMovement(change.value, change.allocations, path);
+      setDebtAccountId(debtAccountKey(change.value.party));
     } else if (change.type === 'void') {
       await reviseEntry(change.original, change.reason, null);
     } else if (change.type === 'manifest') {
@@ -186,10 +194,10 @@ export default function Workspace() {
   const ready = loadedFor === userId;
   const expenseView = section === 'purchases' && purchaseView === 'expense';
   const action = section === 'shipments' ? t('حاوية جديدة', 'New container') : expenseView ? t('إضافة مصروف', 'Add expense') :
-    section === 'purchases' || section === 'receipts' ? t('إضافة فاتورة', 'Add invoice') : section === 'debts' ? t('إضافة دين', 'Add debt') : t('عملية جديدة', 'New transaction');
+    section === 'purchases' || section === 'receipts' ? t('إضافة فاتورة', 'Add invoice') : section === 'debts' ? t('إضافة حركة', 'Add movement') : t('عملية جديدة', 'New transaction');
   function openEditor() {
     if (section === 'shipments') setEditor({ type: 'manifest' });
-    else if (section === 'debts') setEditor({ type: 'debt' });
+    else if (section === 'debts') setEditor({ type: 'movement' });
     else if (expenseView) setEditor({ type: 'entry', kind: 'expense', expenseOnly: true });
     else if (section === 'purchases' || section === 'receipts') setEditor({ type: 'purchase' });
     else setEditor({ type: 'entry', kind: 'expense' });
@@ -228,7 +236,7 @@ export default function Workspace() {
             </div>
             <Ledger key={purchaseView} entries={entries} lang={lang} kind={purchaseView} onReceipt={receipt} edit={setEditor} />
           </>}
-          {section === 'debts' && <Debts entries={currentEntries} lang={lang} edit={setEditor} />}
+          {section === 'debts' && <DebtAccounts entries={currentEntries} lang={lang} selected={debtAccountId} select={setDebtAccountId} edit={setEditor} onReceipt={receipt} />}
           {section === 'shipments' && <Shipments data={data} lang={lang} selected={containerId} select={setContainerId} edit={setEditor} advance={changeStatus} updating={updating} onReceipt={receipt} />}
           {section === 'reports' && <Reports data={data} lang={lang} />}
         </>}
@@ -239,7 +247,7 @@ export default function Workspace() {
       ? <ShipmentEditor container={editor.container} data={data} lang={lang} close={() => setEditor(null)} save={record} />
       : editor.type === 'purchase'
       ? <PurchaseEditorDialog editor={editor} data={data} lang={lang} close={() => setEditor(null)} save={record} />
-      : editor.type === 'debt' || editor.type === 'settlement'
+      : editor.type === 'debt' || editor.type === 'settlement' || editor.type === 'movement'
       ? <DebtEditorDialog editor={editor} data={data} lang={lang} close={() => setEditor(null)} save={record} />
       : <EditorDialog editor={editor} data={data} lang={lang} close={() => setEditor(null)} save={record} onReceipt={receipt} openPurchase={() => setEditor({ type: 'purchase' })} />)}
   </div>;

@@ -10,7 +10,7 @@ export function sampleData(): Dataset {
   });
   return {
     products: [product(1, 'زيت زيتون · كرتون 12 عبوة', 'مواد غذائية', 'كرتون'), product(2, 'عطر عود · عبوة 100 مل', 'عطور', 'كرتون'), product(3, 'فحم طبيعي · كيس 10 كجم', 'فحم', 'كيس')],
-    containers: [{ id: id(4), name: 'JED–001', destination: 'المملكة المتحدة', booking: 'BK-DEMO-01', status: 'preparing', created_at, manifest_revision: 0, gbp_rate: null }],
+    containers: [{ id: id(4), name: 'JED–001', destination: 'المملكة المتحدة', booking: 'BK-DEMO-01', status: 'preparing', created_at, manifest_revision: 0 }],
     entries: [
       e(11, { kind: 'funding', party: 'المالك (تجريبي)', description: 'تمويل عمليات جدة', amount: 15000000, paid: 15000000, category: 'رأس المال' }),
       e(12, { kind: 'borrow', party: 'مموّل تجريبي', description: 'تمويل مؤقت لشراء البضائع', currency: 'USD', rate: 3.75, amount: 1000000, paid: 1000000, category: 'تمويل مؤقت' }),

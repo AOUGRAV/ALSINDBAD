@@ -2,13 +2,14 @@
 
 import { useState } from 'react';
 import { Download, Printer } from 'lucide-react';
-import { activeEntries, baseAmount, cashAmount, debtBalance, debtPrincipal, debtSide, kindLabels, kinds, today, type Dataset, type Lang } from '@/lib/domain';
+import { activeEntries, baseAmount, cashAmount, debtBalance, debtPrincipal, debtSide, kindLabels, kinds, minor, today, type Dataset, type Lang } from '@/lib/domain';
 import { invoiceLineTotal, invoiceTotals, invoiceVatPercent } from '@/lib/purchases';
 import { containerCost } from '@/lib/manifest';
 import { errorMessage, translate } from './forms';
+import { PoundEquivalent } from './money-amount';
 
 type Cell = string | number;
-type Report = { headers: string[]; rows: Cell[][]; numeric: number[] };
+type Report = { headers: string[]; rows: Cell[][]; numeric: number[]; sar: number[]; currencyColumn?: number; visibleColumns?: number };
 type ReportKind = 'ledger' | 'debts' | 'purchases' | 'prices' | 'containers';
 export const reportKinds: Record<ReportKind, [string, string]> = {
   ledger: ['الحركات المالية', 'Transaction ledger'], debts: ['الديون المفتوحة', 'Open debts'],
@@ -76,6 +77,7 @@ export function Reports({ data, lang }: { data: Dataset; lang: Lang }) {
         debtSide(e) === 'payable' ? t('علينا', 'Payable') : t('لنا', 'Receivable'), scopeText(e.scope),
         debtPrincipal(e) / 100, e.currency, debtBalance(e, entries) / 100, baseAmount(e, debtBalance(e, entries)) / 100]),
       numeric: [3, 5, 6],
+      sar: [6], currencyColumn: 4,
     };
     if (kind === 'purchases') return {
       headers: [date, invoiceNumber, party, currency, t('قبل الضريبة', 'Before VAT'), t('الضريبة', 'VAT') + ' ' + invoiceVatPercent + '%',
@@ -87,14 +89,16 @@ export function Reports({ data, lang }: { data: Dataset; lang: Lang }) {
           totals ? totals.vat / 100 : '—', e.amount / 100, paid / 100, baseAmount(e) / 100];
       }),
       numeric: [4, 5, 6, 7, 8],
+      sar: [8], currencyColumn: 3,
     };
     if (kind === 'containers') return {
       headers: [t('الحاوية', 'Container'), t('الوجهة', 'Destination'), t('قيمة البضاعة (SAR)', 'Stock value (SAR)'), t('مصاريف الشحن (SAR)', 'Shipping (SAR)'), t('الإجمالي (SAR)', 'Total (SAR)'), t('الإجمالي (GBP)', 'Total (GBP)')],
       rows: data.containers.map(c => {
         const cost = containerCost(data, c);
-        return [c.name, c.destination, cost.goods / 100, cost.shipping / 100, cost.total / 100, cost.gbp === null ? '—' : cost.gbp / 100];
+        return [c.name, c.destination, cost.goods / 100, cost.shipping / 100, cost.total / 100, cost.gbp / 100];
       }),
       numeric: [2, 3, 4, 5],
+      sar: [2, 3, 4], visibleColumns: 5,
     };
     if (kind === 'prices') return {
       headers: [date, invoiceNumber, product, party, t('الكمية', 'Quantity'), unit, currency, t('سعر الوحدة', 'Unit price'), t('سعر الوحدة (SAR)', 'Unit price (SAR)'), sar],
@@ -106,17 +110,21 @@ export function Reports({ data, lang }: { data: Dataset; lang: Lang }) {
           e.amount / e.quantity / 100, baseAmount(e) / e.quantity / 100, baseAmount(e) / 100]];
       }),
       numeric: [7, 8, 9],
+      sar: [8, 9], currencyColumn: 6,
     };
     return {
       headers: [date, type, party, t('الوصف', 'Description'), t('التصنيف', 'Category'), scopeName, original, currency, t('سعر الصرف', 'FX rate'), sar, t('حركة النقد (SAR)', 'Cash movement (SAR)')],
       rows: sorted(filtered.filter(e => (!entryKind || e.kind === entryKind) && (!scope || e.scope === scope))).map(e =>
         [e.date, e.opening ? t('دين افتتاحي', 'Opening debt') : t(...kindLabels[e.kind]), e.party, e.description, e.category, scopeText(e.scope), e.amount / 100, e.currency, e.rate, baseAmount(e) / 100, cashAmount(e, true) / 100]),
       numeric: [6, 9, 10],
+      sar: [9, 10], currencyColumn: 7,
     };
   })();
   if (filter.trim()) report.rows = report.rows.filter(row => row.some(cell => String(cell).toLocaleLowerCase().includes(filter.trim().toLocaleLowerCase())));
   const range = dated && (from || to) ? [from || t('البداية', 'Start'), to || today()].join(' — ') : t('كل السجلات', 'All records');
   const title = t(...reportKinds[kind]);
+  const isSar = (row: Cell[], column: number) => report.sar.includes(column) ||
+    (report.currencyColumn !== undefined && row[report.currencyColumn] === 'SAR' && report.numeric.includes(column));
   async function exportFile() {
     setBusy(true);
     setError('');
@@ -139,8 +147,13 @@ export function Reports({ data, lang }: { data: Dataset; lang: Lang }) {
     {invalidRange && <p className="error-box no-print" role="alert">{t('تاريخ النهاية يجب أن يكون بعد البداية.', 'End date must follow the start date.')}</p>}
     {error && <p className="error-box no-print" role="alert">{error}</p>}
     <div className="report-title"><h2>{title}</h2><p>{range} · {report.rows.length} {t('سجل', 'records')}</p></div>
-    <div className="table-scroll" tabIndex={0} aria-label={title}><table className="report-table"><thead><tr>{report.headers.map(label => <th key={label} scope="col">{label}</th>)}</tr></thead><tbody>
-      {report.rows.map((row, index) => <tr key={index}>{row.map((cell, column) => <td key={column}>{typeof cell === 'number' ? <bdi>{new Intl.NumberFormat(lang === 'ar' ? 'ar-SA' : 'en-GB', { maximumFractionDigits: column === 8 && kind === 'ledger' ? 6 : column === 4 && kind === 'prices' ? 3 : 2 }).format(cell)}</bdi> : cell}</td>)}</tr>)}
+    <div className="table-scroll" tabIndex={0} aria-label={title}><table className="report-table"><thead><tr>{report.headers.slice(0, report.visibleColumns).map(label => <th key={label} scope="col">{label}</th>)}</tr></thead><tbody>
+      {report.rows.map((row, index) => <tr key={index}>{row.slice(0, report.visibleColumns).map((cell, column) => <td key={column}>
+        {typeof cell === 'number' ? <>
+          <bdi>{new Intl.NumberFormat(lang === 'ar' ? 'ar-SA' : 'en-GB', { maximumFractionDigits: column === 8 && kind === 'ledger' ? 6 : column === 4 && kind === 'prices' ? 3 : 2 }).format(cell)}</bdi>
+          {isSar(row, column) && <PoundEquivalent amount={minor(cell)} lang={lang} />}
+        </> : cell}
+      </td>)}</tr>)}
     </tbody></table></div>
     {!report.rows.length && <p className="empty">{t('لا توجد سجلات تطابق الفلاتر.', 'No records match these filters.')}</p>}
   </section>;
