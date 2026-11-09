@@ -1,9 +1,12 @@
 'use client';
 
-import { ArrowLeft, Download, Pencil, Plus, Ship } from 'lucide-react';
+import { useState } from 'react';
+import { ArrowLeft, Box, Download, Pencil, Plus, Ship } from 'lucide-react';
 import { containerStatusLabels, inventory, type Container, type Dataset, type InvoiceLoad, type Lang } from '@/lib/domain';
 import { MoneyAmount } from './money-amount';
 import { containerCost } from '@/lib/manifest';
+import { containerCargo } from '@/lib/container-cargo';
+import { CargoModel } from './cargo-model';
 import { translate, type Editor } from './forms';
 import { Empty } from './views';
 
@@ -21,6 +24,7 @@ export function Shipments({ data, lang, selected, select, edit, advance, updatin
   onReceipt: (path: string) => void;
 }) {
   const t = translate(lang);
+  const [modelId, setModelId] = useState<string | null>(null);
   const status = (value: Container['status']) => t(containerStatusLabels[value][0], containerStatusLabels[value][1]);
   const editLabel = t('تعديل الحاوية', 'Edit container');
   const container = data.containers.find(row => row.id === selected);
@@ -48,6 +52,7 @@ export function Shipments({ data, lang, selected, select, edit, advance, updatin
   const loaded = cost.lines.length > 0 || cost.invoiceLines.length > 0;
   const preparing = container.status === 'preparing';
   const canLoadLegacy = preparing && data.products.some(product => inventory(data, product.id).remaining > 0);
+  const showModel = modelId === container.id && loaded;
 
   return <section className="panel record-card shipment-detail">
     <div className="card-heading">
@@ -67,7 +72,14 @@ export function Shipments({ data, lang, selected, select, edit, advance, updatin
       </button>}
     </div>
     <div className="manifest-picker">
-      <h3>{t('الحمولة', 'Manifest')}</h3>
+      <div className="manifest-view-switch">
+        <h3>{t('الحمولة', 'Manifest')}</h3>
+        {loaded && <div className="actions purchase-switch" role="group" aria-label={t('عرض الحمولة', 'Manifest view')}>
+          <button className="btn secondary" aria-pressed={!showModel} onClick={() => setModelId(null)}>{t('القائمة', 'List')}</button>
+          <button className="btn secondary" aria-pressed={showModel} onClick={() => setModelId(container.id)}><Box size={16} />{t('عرض 3D', '3D view')}</button>
+        </div>}
+      </div>
+      {showModel ? <CargoModel key={container.id} items={containerCargo(data, cost)} lang={lang} onReceipt={onReceipt} /> : <>
       {!loaded && <Empty>{t('الحمولة فارغة.', 'The manifest is empty.')}</Empty>}
       {data.entries.filter(entry => invoiceGroups.has(entry.id)).map(entry => <section className="purchase-item" key={entry.id}>
         <div className="manifest-invoice-head">
@@ -87,6 +99,7 @@ export function Shipments({ data, lang, selected, select, edit, advance, updatin
           return <div className="split-line" key={line.id}><strong>{product?.name}</strong><span><bdi>{line.quantity}</bdi> {product?.unit}</span></div>;
         })}
       </section>}
+      </>}
     </div>
     <div className="manifest-picker">
       <div className="split-line"><span>{t('تكلفة المنتجات عند التحميل', 'Product cost at loading')}</span><MoneyAmount amount={cost.goods} lang={lang} /></div>

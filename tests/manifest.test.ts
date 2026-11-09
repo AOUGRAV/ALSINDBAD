@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
 import { cashAmount, emptyData, preparePurchaseInvoice, validateEntry, type Container } from '../src/lib/domain';
 import { availableInvoiceItems, containerCost } from '../src/lib/manifest';
+import { containerCargo } from '../src/lib/container-cargo';
 
 const fields = {
   id: randomUUID(), date: '2026-11-09', created_at: '2026-11-09T12:00:00Z',
@@ -51,4 +52,23 @@ test('container totals convert the sum of loaded products and expenses at the wo
   const total = containerCost(data, container);
   assert.equal(total.total, 23500);
   assert.equal(total.gbp, 4700);
+});
+
+test('each pallet represents the loaded quantity of its own invoice line or legacy product', () => {
+  const data = emptyData();
+  const invoice = preparePurchaseInvoice({
+    ...fields, invoice_number: 'QA-PALLET',
+    invoice_items: [{ name: 'Oil', unit: 'carton', quantity: 20, unit_price: 1000 }],
+  }, data);
+  const containerId = randomUUID();
+  const productId = randomUUID();
+  data.entries.push(invoice);
+  data.products.push({ id: productId, name: 'Soap', unit: 'box', category: 'Goods', expiry: null, created_at: fields.created_at });
+  const cargo = containerCargo(data, {
+    invoiceLines: [{ container_id: containerId, entry_id: invoice.id, item_index: 0, quantity: 7.5, cost_sar: 8625 }],
+    lines: [{ id: randomUUID(), container_id: containerId, product_id: productId, quantity: 2, cost_sar: 1000, created_at: fields.created_at }],
+  });
+  assert.deepEqual(cargo.map(item => [item.name, item.quantity, item.unit, item.invoice?.invoice_number]), [
+    ['Oil', 7.5, 'carton', 'QA-PALLET'], ['Soap', 2, 'box', undefined],
+  ]);
 });

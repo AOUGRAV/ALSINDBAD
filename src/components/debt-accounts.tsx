@@ -1,12 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowDownLeft, ArrowLeft, ArrowUpRight, Download, Pencil, Trash2 } from 'lucide-react';
+import { ArrowDownLeft, ArrowLeft, ArrowUpRight, Download, Pencil, Printer, Trash2 } from 'lucide-react';
 import { debtAccounts, debtAccountKey, movementDirection, type MovementDirection } from '@/lib/debt-accounts';
 import { debtPrincipal, debtSide, type DebtDirection, type Entry, type Lang } from '@/lib/domain';
 import { MoneyAmount } from './money-amount';
 import { translate, type Editor } from './forms';
 import { Empty } from './views';
+import { AccountStatement } from './account-statement';
 
 type Account = ReturnType<typeof debtAccounts>[number];
 
@@ -82,27 +83,32 @@ export function DebtAccounts({ entries, lang, selected, select, edit, onReceipt 
     else groups.set(key, [row]);
   }
 
-  return <section className="panel record-card shipment-detail">
+  const movements = [...groups].map(([key, rows]) => {
+    const first = rows[0];
+    const inbound = movementDirection(first) === 'take';
+    const label = first.kind === 'purchase' ? t('فاتورة آجلة', 'Purchase on credit') : first.opening
+      ? (inbound ? t('رصيد افتتاحي علينا', 'Opening payable') : t('رصيد افتتاحي لنا', 'Opening receivable'))
+      : inbound ? t('أخذت منه', 'Received') : t('أعطيته', 'Paid');
+    const amount = rows.reduce((sum, row) => sum + (row.kind === 'purchase' ? debtPrincipal(row) : row.amount), 0);
+    return { key, rows, first, label, amount, date: first.date, scope: first.scope, currency: first.currency, description: first.description };
+  });
+
+  return <><section className="panel record-card shipment-detail no-print">
     <button className="btn secondary" onClick={() => select(null)}><ArrowLeft className="shipment-back" size={15} />{t('كل الحسابات', 'All accounts')}</button>
     <h2>{account.name}</h2>
     <AccountBalance account={account} lang={lang} />
     <div className="actions">
       <button className="btn primary" onClick={() => movement('take')}><ArrowDownLeft size={16} />{t('أخذت منه', 'Received')}</button>
       <button className="btn secondary" onClick={() => movement('give')}><ArrowUpRight size={16} />{t('أعطيته', 'Paid')}</button>
+      <button className="btn secondary" onClick={() => window.print()}><Printer size={16} />{t('كشف حساب PDF', 'Account statement PDF')}</button>
     </div>
     <div className="manifest-picker">
       <h3>{t('حركات الحساب', 'Account movements')}</h3>
-      {[...groups].map(([key, rows]) => {
-        const first = rows[0];
-        const inbound = movementDirection(first) === 'take';
-        const title = first.kind === 'purchase' ? t('فاتورة آجلة', 'Purchase on credit') : first.opening
-          ? (inbound ? t('رصيد افتتاحي علينا', 'Opening payable') : t('رصيد افتتاحي لنا', 'Opening receivable'))
-          : inbound ? t('أخذت منه', 'Received') : t('أعطيته', 'Paid');
-        const amount = rows.reduce((sum, row) => sum + (row.kind === 'purchase' ? debtPrincipal(row) : row.amount), 0);
-        return <article className="purchase-item account-movement" key={key}>
-          <div className="manifest-invoice-head"><div><strong>{title}</strong><small><bdi>{first.date}</bdi> · {first.scope === 'personal' ? t('شخصي', 'Personal') : t('تجاري', 'Business')}</small></div>
+      {movements.map(({ key, rows, first, label, amount }) =>
+        <article className="purchase-item account-movement" key={key}>
+          <div className="manifest-invoice-head"><div><strong>{label}</strong><small><bdi>{first.date}</bdi> · {first.scope === 'personal' ? t('شخصي', 'Personal') : t('تجاري', 'Business')}</small></div>
             <strong><MoneyAmount amount={amount} currency={first.currency} lang={lang} /></strong></div>
-          {first.description !== title && <p>{first.description}</p>}
+          {first.description !== label && <p>{first.description}</p>}
           {rows.length === 1 ? <AccountActions row={first} account={account} lang={lang} edit={edit} onReceipt={onReceipt} /> :
             <details className="detail"><summary>{t('تفاصيل توزيع المبلغ', 'Allocation details')}</summary>
               {rows.map(row => <div className="split-line account-part" key={row.id}>
@@ -110,8 +116,7 @@ export function DebtAccounts({ entries, lang, selected, select, edit, onReceipt 
                 <AccountActions row={row} account={account} lang={lang} edit={edit} onReceipt={onReceipt} />
               </div>)}
             </details>}
-        </article>;
-      })}
+        </article>)}
       {account.open.length > 0 && <details className="detail">
         <summary>{t('الديون المفتوحة', 'Open debts')}</summary>
         {account.open.map(({ entry, amount }) => <div className="split-line account-part" key={entry.id}>
@@ -122,5 +127,5 @@ export function DebtAccounts({ entries, lang, selected, select, edit, onReceipt 
         </div>)}
       </details>}
     </div>
-  </section>;
+  </section><AccountStatement name={account.name} balances={buckets} movements={movements} lang={lang} /></>;
 }
