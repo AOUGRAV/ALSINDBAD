@@ -205,7 +205,7 @@ export default function Workspace() {
 
   return <div className="workspace">
     {menu && <button className="sidebar-overlay no-print" aria-label={t('إغلاق القائمة', 'Close navigation')} onClick={() => setMenu(false)} />}
-    <aside className={'sidebar no-print' + (menu ? ' sidebar-open' : '')}>
+    <aside id="workspace-sidebar" className={'sidebar no-print' + (menu ? ' sidebar-open' : '')}>
       <Brand />
       <div className="branch"><span className="branch-icon"><MapPin size={17} /></span><strong>{t('فرع جدة', 'Jeddah branch')}</strong></div>
       <nav aria-label={t('القائمة الرئيسية', 'Main navigation')}>{navigation.map(({ id, labels, icon: Icon }) => <button key={id} className={id === section ? 'nav-active' : ''} aria-current={id === section ? 'page' : undefined} onClick={() => navigate(id)}>
@@ -217,7 +217,7 @@ export default function Workspace() {
     </aside>
     <div className="app-content">
       <header className="topbar no-print">
-        <button className="icon-btn mobile-menu" onClick={() => setMenu(!menu)} aria-label={t('القائمة', 'Menu')} aria-expanded={menu}>{menu ? <X size={20} /> : <Menu size={20} />}</button>
+        <button className="icon-btn mobile-menu" onClick={() => setMenu(!menu)} aria-label={t('القائمة الرئيسية', 'Main menu')} aria-controls="workspace-sidebar" aria-expanded={menu}>{menu ? <X size={20} /> : <Menu size={20} />}</button>
         <div className="actions">{ready && <button className="icon-btn" onClick={() => setRefresh(n => n + 1)} aria-label={t('تحديث البيانات', 'Refresh data')}><RefreshCw size={16} /></button>}{languageButton}</div>
       </header>
       <main className="main-content">

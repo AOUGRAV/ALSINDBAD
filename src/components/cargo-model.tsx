@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Download } from 'lucide-react';
+import { Download, ZoomIn, ZoomOut } from 'lucide-react';
 import { type CargoItem } from '@/lib/container-cargo';
 import { cargoShell, layoutCargo, type CargoBox } from '@/lib/cargo-layout';
 import { type Lang } from '@/lib/domain';
@@ -26,6 +26,7 @@ export function CargoModel({ items, lang, onReceipt }: { items: CargoItem[]; lan
   const t = translate(lang);
   const [yaw, setYaw] = useState(-28);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [zoomed, setZoomed] = useState(false);
   const stacks = useMemo(() => layoutCargo(items), [items]);
   if (!stacks.length) return <p className="empty">{t('الحمولة فارغة.', 'The manifest is empty.')}</p>;
   const selectedStack = stacks.find(({ item }) => item.id === selectedId) ?? stacks[0];
@@ -54,7 +55,7 @@ export function CargoModel({ items, lang, onReceipt }: { items: CargoItem[]; lan
     const label = name.length > 18 ? name.slice(0, 17).join('') + '…' : item.name;
     const anchor = projection([base.x + base.w / 2, top + 12, base.z + base.d / 2]);
     const width = Math.max(42, Array.from(label).length * 8 + 18);
-    const margin = width / 2 + 8;
+    const margin = (item.id === selected.id ? width : width / 2) + 8;
     const x = Math.min(1040 - margin, Math.max(margin, anchor.x));
     const { y } = anchor;
     if (tags.some(tag => Math.abs(tag.x - x) < (tag.width + width) / 2 + 4 && Math.abs(tag.y - y) < 27)) continue;
@@ -63,10 +64,16 @@ export function CargoModel({ items, lang, onReceipt }: { items: CargoItem[]; lan
   return <div className="cargo-model">
     <div className="cargo-controls">
       <span className="tag">{t('توزيع تقديري حسب الكمية', 'Estimated layout by quantity')} · <bdi>{items.length}</bdi> {t('بند', 'items')}</span>
-      <label><span>{t('تدوير العرض', 'Rotate view')}</span><input type="range" min="-38" max="38" value={yaw} dir="ltr"
-        onChange={event => setYaw(Number(event.target.value))} /></label>
+      <div className="actions">
+        <label><span>{t('تدوير العرض', 'Rotate view')}</span><input type="range" min="-38" max="38" value={yaw} dir="ltr"
+          onChange={event => setYaw(Number(event.target.value))} /></label>
+        <button className="btn secondary" onClick={() => setZoomed(value => !value)}>
+          {zoomed ? <ZoomOut size={16} /> : <ZoomIn size={16} />}
+          {zoomed ? t('ملاءمة العرض', 'Fit view') : t('تكبير العرض', 'Zoom in')}
+        </button>
+      </div>
     </div>
-    <div className="cargo-viewport" tabIndex={0} aria-label={t('عرض الحمولة ثلاثي الأبعاد', '3D cargo view')}>
+    <div className={'cargo-viewport' + (zoomed ? ' cargo-zoomed' : '')} tabIndex={0} aria-label={t('عرض الحمولة ثلاثي الأبعاد', '3D cargo view')}>
       <svg viewBox="0 0 1040 565" role="group" aria-label={t('الطبليات', 'Pallets')}>
         <polygon className="cargo-floor" points={points([0, 0, 0], [length, 0, 0], [length, 0, depth], [0, 0, depth])} />
         <polygon className="cargo-wall" points={points([0, 0, 0], [length, 0, 0], [length, height, 0], [0, height, 0])} />
@@ -89,12 +96,14 @@ export function CargoModel({ items, lang, onReceipt }: { items: CargoItem[]; lan
         {tags.map(({ item, label, x, y, width }) =>
           <g key={item.id} className={'cargo-tag' + (selected.id === item.id ? ' cargo-tag-active' : '')}
             transform={'translate(' + x + ' ' + y + ')'} aria-hidden="true" onClick={() => setSelectedId(item.id)}>
-            <rect x={-width / 2} y={-17} width={width} height={24} rx={8} />
-            <text textAnchor="middle" direction={lang === 'ar' ? 'rtl' : 'ltr'} y={0}>{label}</text>
+            <g className="cargo-tag-label">
+              <rect x={-width / 2} y={-17} width={width} height={24} rx={8} />
+              <text textAnchor="middle" direction={lang === 'ar' ? 'rtl' : 'ltr'} y={0}>{label}</text>
+            </g>
           </g>)}
       </svg>
     </div>
-    {items.length > 1 && <label className="field"><span>{t('اختيار المنتج', 'Select product')}</span><select value={selected.id} onChange={event => setSelectedId(event.target.value)}>
+    {items.length > 1 && <label className="field cargo-product-field"><span>{t('اختيار المنتج', 'Select product')}</span><select value={selected.id} onChange={event => setSelectedId(event.target.value)}>
       {items.map(item => <option key={item.id} value={item.id}>{item.name} · {item.quantity} {item.unit}{item.invoice?.invoice_number ? ' · ' + item.invoice.invoice_number : ''}</option>)}
     </select></label>}
     <section className="purchase-item cargo-details" aria-live="polite">
