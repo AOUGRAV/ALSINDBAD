@@ -13,6 +13,7 @@
     "@tesseract.js-data/ara": "1.0.0",
     "@tesseract.js-data/eng": "1.0.0",
     "exceljs": "4.4.0",
+    "jsqr": "1.4.0",
     "lucide-react": "latest",
     "next": "latest",
     "pdfjs-dist": "6.5.438",

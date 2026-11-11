@@ -5,10 +5,12 @@ import { Check, Plus, ScanText, Trash2, X } from 'lucide-react';
 import { currencies, minor, preparePurchaseInvoice, today, type Currency, type Dataset, type Entry, type Lang } from '@/lib/domain';
 import { MoneyAmount, PoundEquivalent } from './money-amount';
 import { invoiceLineTotal, invoiceTotals, invoiceVatPercent, maxInvoiceItems } from '@/lib/purchases';
+import type { scanInvoice } from '@/lib/scan-invoice';
 import { receiptAccept, receiptExtension } from '@/lib/receipt';
 import { errorMessage, Field, translate, type PurchaseEditor, type RecordChange } from './forms';
 
 type ItemFields = { id: number; name: string; quantity: string; unit: string; price: string };
+type InvoiceScan = Awaited<ReturnType<typeof scanInvoice>>;
 const emptyItem = (id: number): ItemFields => ({ id, name: '', quantity: '1', unit: '', price: '' });
 
 export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
@@ -23,7 +25,9 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
   const [party, setParty] = useState(original?.party ?? '');
   const [invoiceNumber, setInvoiceNumber] = useState(original?.invoice_number ?? '');
   const [date, setDate] = useState(original?.date ?? today());
+  const [dateEdited, setDateEdited] = useState(false);
   const [currency, setCurrency] = useState<Currency>(original?.currency ?? 'SAR');
+  const [currencyEdited, setCurrencyEdited] = useState(false);
   const [partial, setPartial] = useState(Boolean(original && original.paid < original.amount));
   const [paid, setPaid] = useState(String(original ? original.paid / 100 : 0));
   const [attachment, setAttachment] = useState<File | null>(null);
@@ -31,11 +35,20 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [scanStatus, setScanStatus] = useState('');
+  const [scan, setScan] = useState<InvoiceScan | null>(null);
+  const [progress, setProgress] = useState(0);
   const dialog = useRef<HTMLDialogElement>(null);
   const identity = useRef<Pick<Entry, 'id' | 'created_at'> | null>(null);
   const invoiceItems = items.map(item => ({ name: item.name.trim(), quantity: Number(item.quantity), unit: item.unit.trim(), unit_price: minor(item.price) }));
   const totals = invoiceTotals(invoiceItems);
   const blocked = busy || reading;
+  const canImportItems = !original && items.length === 1 && !items[0].name && !items[0].price && !items[0].unit && items[0].quantity === '1';
+  const scanFields = scan?.fields;
+  const canApplyScan = scan && (
+    (scan.fields.number && !invoiceNumber) || (scan.fields.supplier && !party) ||
+    (!original && ((scan.fields.date && !dateEdited) || (scan.fields.currency && !currencyEdited))) ||
+    (scan.items.length > 0 && canImportItems)
+  );
 
   useEffect(() => {
     const node = dialog.current;
@@ -50,19 +63,31 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
   async function readInvoice() {
     if (!attachment || blocked) return;
     setScanStatus('');
+    setScan(null);
+    setProgress(0);
     setReading(true);
     try {
       const { scanInvoice } = await import('@/lib/scan-invoice');
-      const { fields } = await scanInvoice(attachment, () => {});
-      if (fields.number && !invoiceNumber) setInvoiceNumber(fields.number);
-      if (fields.supplier && !party) setParty(fields.supplier);
-      if (fields.date && !original && date === today()) setDate(fields.date);
-      setScanStatus(fields.number || fields.date || fields.supplier
-        ? t('راجع بيانات الفاتورة وأدخل المنتجات والأسعار.', 'Review the invoice details and enter its products and prices.')
-        : t('تعذّر تحديد بيانات الفاتورة. أدخلها يدويًا.', 'The invoice details could not be read. Enter them manually.'));
+      const result = await scanInvoice(attachment, value => setProgress(previous => Math.max(previous, value)));
+      if (Object.values(result.fields).some(Boolean) || result.items.length) setScan(result);
+      else setScanStatus(t('تعذّرت قراءة بيانات الفاتورة. أدخلها يدويًا.', 'Could not read the invoice details. Enter them manually.'));
     } catch {
       setScanStatus(t('تعذّرت قراءة الملف. أدخل البيانات يدويًا.', 'Could not read the file. Enter the details manually.'));
     } finally { setReading(false); }
+  }
+
+  function applyScan(result: InvoiceScan) {
+    const { fields, items: scannedItems } = result;
+    if (fields.number && !invoiceNumber) setInvoiceNumber(fields.number);
+    if (fields.supplier && !party) setParty(fields.supplier);
+    if (fields.date && !original && !dateEdited) setDate(fields.date);
+    if (fields.currency && !original && !currencyEdited) setCurrency(fields.currency);
+    if (scannedItems.length && canImportItems) {
+      setItems(scannedItems.map(item => ({
+        id: nextId.current++, name: item.name, quantity: String(item.quantity), unit: item.unit, price: (item.unit_price / 100).toFixed(2),
+      })));
+    }
+    setScanStatus(t('راجع الحقول والأصناف قبل الحفظ.', 'Review the fields and products before saving.'));
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -101,14 +126,40 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
     </header>
     <form onSubmit={submit}>
       <fieldset className="purchase-fields" disabled={blocked}>
+        <div className="receipt-scan">
+          <Field title={original?.receipt_path ? t('استبدال مرفق الفاتورة', 'Replace invoice attachment') : t('مرفق الفاتورة (صورة أو PDF)', 'Invoice attachment (image or PDF)')} wide>
+            <input type="file" accept={receiptAccept} onChange={event => {
+              setAttachment(event.target.files?.[0] ?? null);
+              setScanStatus('');
+              setScan(null);
+            }} />
+          </Field>
+          {attachment && <button type="button" className="btn secondary" onClick={readInvoice}><ScanText size={16} />{reading ? t('جارٍ القراءة…', 'Reading…') : t('قراءة بيانات الفاتورة', 'Read invoice details')}</button>}
+          {reading && <progress value={progress} max={100} aria-label={t('تقدّم قراءة الفاتورة', 'Invoice reading progress')} />}
+          {scan && <div className="scan-result">
+            <p role="status">
+              {[scan.fields.supplier, scan.fields.number, scan.fields.date].filter(Boolean).join(' · ')}
+              {scan.fields.total && <span> {t('إجمالي المرفق', 'Attachment total')} {scan.fields.currency
+                ? <MoneyAmount amount={minor(scan.fields.total)} currency={scan.fields.currency} lang={lang} />
+                : <bdi>{scan.fields.total}</bdi>}</span>}
+            </p>
+            {scan.pagesRead < scan.pageCount && <p>{t('تمت قراءة بعض الصفحات فقط.', 'Only some pages were read.')}</p>}
+            {!scan.fields.date && !dateEdited && !original && <p>{t('تحقق من تاريخ الفاتورة.', 'Check the invoice date.')}</p>}
+            <p>{scan.items.length ? t('عدد الأصناف المقروءة ', 'Products read ') + scan.items.length : t('أدخل الأصناف يدويًا.', 'Enter the products manually.')}</p>
+            {!scanStatus && canApplyScan && <button className="btn secondary" type="button" onClick={() => applyScan(scan)}>
+              <Check size={16} />{t('تعبئة الحقول المتاحة', 'Fill available fields')}
+            </button>}
+          </div>}
+          {scanStatus && <p role="status">{scanStatus}</p>}
+        </div>
         <div className="form-grid">
           <Field title={t('اشتريت من', 'Purchased from')} wide><input value={party} onChange={event => setParty(event.target.value)} placeholder={t('شركة، محل أو شخص', 'Company, shop, or person')} maxLength={120} required /></Field>
           <Field title={t('رقم الفاتورة', 'Invoice number')}><input value={invoiceNumber} onChange={event => setInvoiceNumber(event.target.value)} maxLength={80} required /></Field>
-          <Field title={t('تاريخ الفاتورة', 'Invoice date')}><input type="date" value={date} onChange={event => setDate(event.target.value)} required /></Field>
+          <Field title={t('تاريخ الفاتورة', 'Invoice date')}><input type="date" value={date} onChange={event => { setDate(event.target.value); setDateEdited(true); }} required /></Field>
           <Field title={t('طريقة الدفع', 'Payment method')}><select name="method" defaultValue={original?.method ?? 'cash'}>
             <option value="cash">{t('نقدي', 'Cash')}</option><option value="bank">{t('تحويل بنكي', 'Bank transfer')}</option><option value="card">{t('بطاقة', 'Card')}</option>
           </select></Field>
-          <Field title={t('العملة', 'Currency')}><select value={currency} onChange={event => setCurrency(event.target.value as Currency)}>
+          <Field title={t('العملة', 'Currency')}><select value={currency} onChange={event => { setCurrency(event.target.value as Currency); setCurrencyEdited(true); }}>
             {currencies.map(code => <option key={code} value={code}>{code === 'SAR' ? t('ريال سعودي', 'Saudi riyal') : code}</option>)}
           </select></Field>
           {currency !== 'SAR' && <Field title={t('سعر صرف 1', 'SAR per 1') + ' ' + currency + (lang === 'ar' ? ' بالريال' : '')} wide>
@@ -151,17 +202,12 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
           <div><span>{t('الضريبة', 'VAT')} <bdi>{invoiceVatPercent}%</bdi></span><MoneyAmount amount={totals?.vat ?? null} currency={currency} lang={lang} /></div>
           <div><strong>{t('الإجمالي شامل الضريبة', 'Total including VAT')}</strong><strong><MoneyAmount amount={totals?.total ?? null} currency={currency} lang={lang} /></strong></div>
         </div>
+        {scanFields?.total && totals && items.every(item => item.name.trim() && item.price) &&
+          (!scanFields.currency || scanFields.currency === currency) && totals.total !== minor(scanFields.total) &&
+          <p className="muted">{t('الإجمالي المحسوب يختلف عن إجمالي المرفق.', 'The calculated total differs from the attachment total.')}</p>}
         <details className="debt-more" open={partial || undefined}>
-          <summary>{t('مرفق أو دفعة جزئية', 'Attachment or partial payment')}</summary>
+          <summary>{t('دفعة جزئية', 'Partial payment')}</summary>
           <div className="form-grid">
-            <Field title={original?.receipt_path ? t('استبدال صورة الفاتورة', 'Replace invoice attachment') : t('إرفاق صورة أو PDF', 'Attach image or PDF')} wide>
-              <input type="file" accept={receiptAccept} onChange={event => {
-                setAttachment(event.target.files?.[0] ?? null);
-                setScanStatus('');
-              }} />
-            </Field>
-            {attachment && <div className="field-wide actions"><button type="button" className="btn secondary" onClick={readInvoice}><ScanText size={16} />{reading ? t('جارٍ القراءة…', 'Reading…') : t('قراءة بيانات الفاتورة', 'Read invoice details')}</button>
-              {scanStatus && <p className="muted" role="status">{scanStatus}</p>}</div>}
             <label className="field-wide check-field"><input type="checkbox" checked={partial} onChange={event => setPartial(event.target.checked)} />{t('دفعت جزءًا من الفاتورة أو لم أدفع بعد', 'I paid part of the invoice or have not paid yet')}</label>
             {partial && <Field title={t('المبلغ المدفوع', 'Amount paid')} wide><input name="paid" type="number" inputMode="decimal" min="0"
               max={totals ? totals.total / 100 : undefined} step="0.01" value={paid} onChange={event => setPaid(event.target.value)} required />

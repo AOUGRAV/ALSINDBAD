@@ -1,7 +1,32 @@
-import { extractInvoiceFields } from './invoice';
+import { extractInvoiceFields, extractInvoiceItems, extractScannedInvoiceTotal, readSaudiInvoiceQr, type InvoiceSuggestion } from './invoice';
+import { invoiceTotals } from './purchases';
 import { receiptExtension } from './receipt';
 
 type InvoiceWorker = Awaited<ReturnType<typeof import('tesseract.js').createWorker>>;
+
+function cropCanvas(image: HTMLCanvasElement, x: number, y: number, width: number, height: number, scale = 1) {
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(width * scale));
+  canvas.height = Math.max(1, Math.round(height * scale));
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Image processing is unavailable');
+  context.drawImage(image, x, y, width, height, 0, 0, canvas.width, canvas.height);
+  return { canvas, context };
+}
+
+function supplierBounds(tsv: string, supplier: string, pageHeight: number) {
+  const words = tsv.split('\n').map(line => line.split('\t')).filter(row => row[0] === '5');
+  const name = supplier.split(' ');
+  const first = words.findIndex((word, index) => Number(word[7]) < pageHeight * 0.12 &&
+    name.every((part, offset) => words[index + offset]?.[11] === part && words[index + offset][4] === word[4]));
+  if (first < 0) return;
+  const boxes = words.slice(first, first + name.length).map(word => word.slice(6, 10).map(Number));
+  const left = Math.max(0, Math.min(...boxes.map(box => box[0])) - 5);
+  const top = Math.max(0, Math.min(...boxes.map(box => box[1])) - 5);
+  const right = Math.max(...boxes.map(box => box[0] + box[2])) + 8;
+  const bottom = Math.max(...boxes.map(box => box[1] + box[3])) + 5;
+  return { left, top, right, bottom };
+}
 
 async function startWorker(onProgress: (progress: number) => void) {
   const { createWorker } = await import('tesseract.js');
@@ -18,7 +43,7 @@ async function startWorker(onProgress: (progress: number) => void) {
       corePath: '/ocr-assets/core',
       langPath: '/ocr-assets/lang',
       workerBlobURL: false,
-      logger: ({ status, progress }) => onProgress(status === 'recognizing text' ? 35 + Math.round(progress * 65) : 15),
+      logger: ({ status, progress }) => onProgress(status === 'recognizing text' ? 35 + Math.round(progress * 60) : 15),
       errorHandler: fail,
     }).then(async worker => {
       clearTimeout(timer);
@@ -31,13 +56,69 @@ async function startWorker(onProgress: (progress: number) => void) {
 export async function scanInvoice(file: File, onProgress: (progress: number) => void) {
   const extension = receiptExtension(file);
   let worker: InvoiceWorker | undefined;
-  const recognize = async (image: File | HTMLCanvasElement) => {
+  let qr: InvoiceSuggestion = {};
+  let scannedTotal: string | undefined;
+  let scannedSupplier: string | null | undefined;
+  const recognize = async (image: HTMLCanvasElement, firstPage: boolean, lastPage: boolean) => {
+    if (!qr.total) {
+      const { default: jsQR } = await import('jsqr');
+      const pixels = image.getContext('2d')?.getImageData(0, 0, image.width, image.height);
+      const code = pixels && jsQR(pixels.data, pixels.width, pixels.height, { inversionAttempts: 'attemptBoth' });
+      if (code) qr = readSaudiInvoiceQr(code.data);
+    }
     worker ??= await startWorker(onProgress);
-    const { data } = await worker.recognize(image);
-    return data.text;
+    const { PSM } = await import('tesseract.js');
+    await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK, preserve_interword_spaces: '1' });
+    const scale = Math.min(1, 1400 / Math.max(image.width, image.height));
+    const overview = cropCanvas(image, 0, 0, image.width, image.height, scale).canvas;
+    const overviewHeight = overview.height;
+    let raw: string;
+    let tsv: string | undefined;
+    try {
+      const { data } = await worker.recognize(overview, {}, { text: true, tsv: firstPage && !qr.supplier });
+      raw = data.text;
+      tsv = data.tsv ?? undefined;
+    }
+    finally { overview.width = 0; overview.height = 0; }
+
+    const fields = extractInvoiceFields(raw);
+    const inferredSupplier = firstPage && !qr.supplier && fields.supplier && !extractInvoiceFields(raw, false).supplier;
+    if (inferredSupplier) scannedSupplier = null;
+    const bounds = inferredSupplier && tsv && fields.supplier && supplierBounds(tsv, fields.supplier, overviewHeight);
+    if (bounds && fields.supplier) {
+      const { left, top, right, bottom } = bounds;
+      const { canvas } = cropCanvas(image, left / scale, top / scale, (right - left) / scale, (bottom - top) / scale);
+      try {
+        await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_LINE });
+        const { data } = await worker.recognize(canvas);
+        const clearer = extractInvoiceFields(data.text).supplier;
+        if (clearer === fields.supplier && data.confidence >= 85) scannedSupplier = clearer;
+      } finally {
+        canvas.width = 0;
+        canvas.height = 0;
+        await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
+      }
+    }
+    if (lastPage && !qr.total && !fields.total && /(?:\bVAT\b|القيمة\s+المضافة)/i.test(raw) && image.height > 1400) {
+      // Read the totals at higher resolution. Contrasting the colored labels
+      // separately retains faint amounts that disappear under the same filter.
+      const { canvas, context } = cropCanvas(image, image.width * 0.48, image.height * 0.86, image.width * 0.5, image.height * 0.13, 1.35);
+      try {
+        const printed = (await worker.recognize(canvas)).data.text;
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+        for (let offset = 0; offset < pixels.data.length; offset += 4) {
+          const green = (pixels.data[offset + 1] - 226) * 2 + 255;
+          pixels.data[offset] = pixels.data[offset + 1] = pixels.data[offset + 2] = green;
+        }
+        context.putImageData(pixels, 0, 0);
+        const labels = (await worker.recognize(canvas)).data.text;
+        scannedTotal = extractScannedInvoiceTotal(printed, labels) ?? extractScannedInvoiceTotal(raw, labels);
+      } finally { canvas.width = 0; canvas.height = 0; }
+    }
+    return raw;
   };
 
-  let text = '';
+  const pageTexts: string[] = [];
   let pagesRead = 1;
   let pageCount = 1;
   try {
@@ -59,18 +140,19 @@ export async function scanInvoice(file: File, onProgress: (progress: number) => 
           try {
             const content = await page.getTextContent();
             let lines = content.items.map(item => 'str' in item ? item.str + (item.hasEOL ? '\n' : ' ') : '').join('').trim();
-            if (lines.length < 40) {
+            const fields = extractInvoiceFields(lines);
+            if (lines.length < 40 && !Object.values(fields).some(Boolean)) {
               const original = page.getViewport({ scale: 1 });
-              const viewport = page.getViewport({ scale: Math.min(3, 2000 / Math.max(original.width, original.height)) });
+              const viewport = page.getViewport({ scale: Math.min(3, 2550 / Math.max(original.width, original.height)) });
               const canvas = document.createElement('canvas');
               canvas.width = Math.ceil(viewport.width);
               canvas.height = Math.ceil(viewport.height);
               try {
                 await page.render({ canvas, viewport }).promise;
-                lines = await recognize(canvas);
+                lines = await recognize(canvas, index === 1, index === pageCount);
               } finally { canvas.width = 0; canvas.height = 0; }
             }
-            text += lines + '\n';
+            pageTexts.push(lines);
           } finally { page.cleanup(); }
         }
       } finally { await documentTask.destroy(); }
@@ -89,11 +171,23 @@ export async function scanInvoice(file: File, onProgress: (progress: number) => 
         context.fillStyle = '#fff';
         context.fillRect(0, 0, canvas.width, canvas.height);
         context.drawImage(image, 0, 0, canvas.width, canvas.height);
-        try { text = await recognize(canvas); }
+        try { pageTexts.push(await recognize(canvas, true, true)); }
         finally { canvas.width = 0; canvas.height = 0; }
       } finally { URL.revokeObjectURL(url); }
     }
-    const readable = text.trim();
-    return { fields: extractInvoiceFields(readable), text: readable.slice(0, 8000), pagesRead, pageCount };
+    const readable = pageTexts.join('\n').trim();
+    const fields = { ...extractInvoiceFields(readable), ...qr };
+    if (!qr.supplier && scannedSupplier !== undefined) fields.supplier = scannedSupplier ?? undefined;
+    fields.total ??= scannedTotal;
+    const pageItems = pageTexts.map(extractInvoiceItems);
+    const items = pagesRead === pageCount && pageItems.every(page => page.length) ? pageItems.flat() : [];
+    const totals = invoiceTotals(items);
+    const expectedTotal = fields.total === undefined ? null : Math.round(Number(fields.total) * 100);
+    onProgress(100);
+    return {
+      fields,
+      items: totals && (expectedTotal === null || Math.abs(totals.total - expectedTotal) <= items.length) ? items : [],
+      text: readable.slice(0, 8000), pagesRead, pageCount,
+    };
   } finally { await worker?.terminate(); }
 }
