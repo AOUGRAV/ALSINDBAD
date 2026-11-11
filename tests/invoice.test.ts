@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { extractInvoiceFields, extractInvoiceItems, extractScannedInvoiceTotal, readSaudiInvoiceQr } from '../src/lib/invoice';
+import { readScannedTable, type OcrWord } from '../src/lib/scanned-table';
 
 test('extracts an Arabic invoice without confusing the tax or amount due with the invoice total', () => {
   const invoice = extractInvoiceFields([
@@ -59,4 +60,34 @@ test('validates the first five fields of a Saudi invoice QR code', () => {
   assert.deepEqual(readSaudiInvoiceQr(payload), { supplier: 'متجر الساحل', date: '2026-11-07', total: '115.00', currency: 'SAR' });
   assert.deepEqual(readSaudiInvoiceQr('https://example.test/invoice'), {});
   assert.deepEqual(readSaudiInvoiceQr(payload.slice(0, -8)), {});
+});
+
+test('reads scanned columns by row and reconciles the unit price with the printed amount', async () => {
+  const width = 900;
+  const height = 600;
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 240; y < 400; y++) {
+    for (const x of [90, 340, 410, 480, 550, 610, 710, 765, 820, 890]) data[(y * width + x) * 4] = 255;
+  }
+  const word = (text: string, left: number, top: number, line = String(top)): OcrWord =>
+    ({ text, line, left, top, width: 24, height: 12 });
+  const words = [
+    word('Description', 150, 210), word('Qty', 365, 210),
+    word('Total', 630, 210), word('Price', 655, 210),
+    word('20', 365, 260), word('10', 365, 306),
+  ];
+  const columns = {
+    name: [word('Olive oil', 105, 253), word('Rice', 105, 299)],
+    quantity: [word('20', 365, 260), word('16', 365, 306)],
+    'quantity-alt': [word('20', 365, 260), word('10', 365, 306)],
+    'quantity-contrast': [],
+    unit: [word('carton', 420, 260), word('bag', 420, 306)],
+    price: [word('12.50', 490, 260), word('7.25', 490, 306)],
+    net: [word('250.00', 630, 260), word('72.50', 630, 306)],
+    vat: [], gross: [],
+  };
+  assert.deepEqual(await readScannedTable({ width, height, data, colorSpace: 'srgb' }, words, async (_, kind) => columns[kind]), [
+    { name: 'Olive oil', unit: 'carton', quantity: 20, unit_price: 1250 },
+    { name: 'Rice', unit: 'bag', quantity: 10, unit_price: 725 },
+  ]);
 });

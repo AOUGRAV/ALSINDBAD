@@ -1,6 +1,7 @@
 import { extractInvoiceFields, extractInvoiceItems, extractScannedInvoiceTotal, readSaudiInvoiceQr, type InvoiceSuggestion } from './invoice';
-import { invoiceTotals } from './purchases';
+import { maxInvoiceItems, type InvoiceItem } from './purchases';
 import { receiptExtension } from './receipt';
+import { ocrWords, readScannedTable } from './scanned-table';
 
 type InvoiceWorker = Awaited<ReturnType<typeof import('tesseract.js').createWorker>>;
 
@@ -53,7 +54,7 @@ async function startWorker(onProgress: (progress: number) => void) {
   });
 }
 
-export async function scanInvoice(file: File, onProgress: (progress: number) => void) {
+export async function scanInvoice(file: File, onProgress: (progress: number) => void, includeItems = false) {
   const extension = receiptExtension(file);
   let worker: InvoiceWorker | undefined;
   let qr: InvoiceSuggestion = {};
@@ -75,7 +76,7 @@ export async function scanInvoice(file: File, onProgress: (progress: number) => 
     let raw: string;
     let tsv: string | undefined;
     try {
-      const { data } = await worker.recognize(overview, {}, { text: true, tsv: firstPage && !qr.supplier });
+      const { data } = await worker.recognize(overview, {}, { text: true, tsv: firstPage || includeItems });
       raw = data.text;
       tsv = data.tsv ?? undefined;
     }
@@ -83,7 +84,7 @@ export async function scanInvoice(file: File, onProgress: (progress: number) => 
 
     const fields = extractInvoiceFields(raw);
     const inferredSupplier = firstPage && !qr.supplier && fields.supplier && !extractInvoiceFields(raw, false).supplier;
-    if (inferredSupplier) scannedSupplier = null;
+    if (inferredSupplier && !includeItems) scannedSupplier = null;
     const bounds = inferredSupplier && tsv && fields.supplier && supplierBounds(tsv, fields.supplier, overviewHeight);
     if (bounds && fields.supplier) {
       const { left, top, right, bottom } = bounds;
@@ -92,7 +93,10 @@ export async function scanInvoice(file: File, onProgress: (progress: number) => 
         await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_LINE });
         const { data } = await worker.recognize(canvas);
         const clearer = extractInvoiceFields(data.text).supplier;
-        if (clearer === fields.supplier && data.confidence >= 85) scannedSupplier = clearer;
+        const sameLetterhead = clearer && clearer.split(' ').slice(1).join(' ') === fields.supplier.split(' ').slice(1).join(' ');
+        if (includeItems ? sameLetterhead && data.confidence >= 80 : clearer === fields.supplier && data.confidence >= 85) {
+          scannedSupplier = clearer;
+        }
       } finally {
         canvas.width = 0;
         canvas.height = 0;
@@ -115,10 +119,57 @@ export async function scanInvoice(file: File, onProgress: (progress: number) => 
         scannedTotal = extractScannedInvoiceTotal(printed, labels) ?? extractScannedInvoiceTotal(raw, labels);
       } finally { canvas.width = 0; canvas.height = 0; }
     }
-    return raw;
+    let items = includeItems ? extractInvoiceItems(raw) : [];
+    if (includeItems && tsv && !items.length) {
+      const pixels = image.getContext('2d')?.getImageData(0, 0, image.width, image.height);
+      const engine = worker;
+      const words = ocrWords(tsv).map(word => ({ ...word, left: word.left / scale, top: word.top / scale,
+        width: word.width / scale, height: word.height / scale }));
+      if (pixels) {
+        let latin = false;
+        items = await readScannedTable(pixels, words, async (region, kind, latinColumns) => {
+          if (latinColumns && !latin) {
+            await engine.reinitialize('eng');
+            await engine.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK, preserve_interword_spaces: '1' });
+            latin = true;
+          }
+          const alternate = kind === 'quantity-alt';
+          const contrast = kind === 'quantity-contrast';
+          const left = Math.max(0, region.left + (contrast ? -3 : kind === 'quantity' || alternate ? 0 : 2));
+          const top = region.top + (alternate || contrast ? 7 : 0);
+          const factor = kind === 'name' ? 1.1 : alternate ? 1.5 : contrast ? 2.6 : 2;
+          const right = region.right - (contrast ? 8 : 6);
+          const { canvas, context } = cropCanvas(image, left, top, right - left, region.bottom - top, factor);
+          try {
+            if (contrast) {
+              const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+              for (let offset = 0; offset < pixels.data.length; offset += 4) {
+                const red = (pixels.data[offset] - 240) * 3 + 255;
+                pixels.data[offset] = pixels.data[offset + 1] = pixels.data[offset + 2] = red;
+              }
+              context.putImageData(pixels, 0, 0);
+            }
+            const numeric = kind !== 'name' && kind !== 'unit';
+            const whitelist = numeric ? '0123456789.,٠١٢٣٤٥٦٧٨٩٫٬' :
+              kind === 'unit' && latin ? 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz' : '';
+            await engine.setParameters({ tessedit_char_whitelist: whitelist });
+            const { data } = await engine.recognize(canvas, {}, { text: true, tsv: true });
+            return ocrWords(data.tsv ?? '').map(word => ({ ...word, top: top + word.top / factor, height: word.height / factor }));
+          } finally {
+            canvas.width = 0;
+            canvas.height = 0;
+          }
+        }).catch(() => []).finally(async () => {
+          if (latin && !lastPage) await engine.reinitialize('ara+eng');
+          await engine.setParameters({ tessedit_char_whitelist: '' });
+        });
+      }
+    }
+    return { text: raw, items };
   };
 
   const pageTexts: string[] = [];
+  const pageItems: InvoiceItem[] = [];
   let pagesRead = 1;
   let pageCount = 1;
   try {
@@ -141,6 +192,7 @@ export async function scanInvoice(file: File, onProgress: (progress: number) => 
             const content = await page.getTextContent();
             let lines = content.items.map(item => 'str' in item ? item.str + (item.hasEOL ? '\n' : ' ') : '').join('').trim();
             const fields = extractInvoiceFields(lines);
+            let items = includeItems ? extractInvoiceItems(lines) : [];
             if (lines.length < 40 && !Object.values(fields).some(Boolean)) {
               const original = page.getViewport({ scale: 1 });
               const viewport = page.getViewport({ scale: Math.min(3, 2550 / Math.max(original.width, original.height)) });
@@ -149,10 +201,13 @@ export async function scanInvoice(file: File, onProgress: (progress: number) => 
               canvas.height = Math.ceil(viewport.height);
               try {
                 await page.render({ canvas, viewport }).promise;
-                lines = await recognize(canvas, index === 1, index === pageCount);
+                const scanned = await recognize(canvas, index === 1, index === pageCount);
+                lines = scanned.text;
+                items = scanned.items;
               } finally { canvas.width = 0; canvas.height = 0; }
             }
             pageTexts.push(lines);
+            pageItems.push(...items);
           } finally { page.cleanup(); }
         }
       } finally { await documentTask.destroy(); }
@@ -171,7 +226,11 @@ export async function scanInvoice(file: File, onProgress: (progress: number) => 
         context.fillStyle = '#fff';
         context.fillRect(0, 0, canvas.width, canvas.height);
         context.drawImage(image, 0, 0, canvas.width, canvas.height);
-        try { pageTexts.push(await recognize(canvas, true, true)); }
+        try {
+          const scanned = await recognize(canvas, true, true);
+          pageTexts.push(scanned.text);
+          pageItems.push(...scanned.items);
+        }
         finally { canvas.width = 0; canvas.height = 0; }
       } finally { URL.revokeObjectURL(url); }
     }
@@ -179,14 +238,11 @@ export async function scanInvoice(file: File, onProgress: (progress: number) => 
     const fields = { ...extractInvoiceFields(readable), ...qr };
     if (!qr.supplier && scannedSupplier !== undefined) fields.supplier = scannedSupplier ?? undefined;
     fields.total ??= scannedTotal;
-    const pageItems = pageTexts.map(extractInvoiceItems);
-    const items = pagesRead === pageCount && pageItems.every(page => page.length) ? pageItems.flat() : [];
-    const totals = invoiceTotals(items);
-    const expectedTotal = fields.total === undefined ? null : Math.round(Number(fields.total) * 100);
+    const items = pageItems.slice(0, maxInvoiceItems);
     onProgress(100);
     return {
       fields,
-      items: totals && (expectedTotal === null || Math.abs(totals.total - expectedTotal) <= items.length) ? items : [],
+      items,
       text: readable.slice(0, 8000), pagesRead, pageCount,
     };
   } finally { await worker?.terminate(); }

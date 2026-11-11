@@ -44,11 +44,6 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
   const blocked = busy || reading;
   const canImportItems = !original && items.length === 1 && !items[0].name && !items[0].price && !items[0].unit && items[0].quantity === '1';
   const scanFields = scan?.fields;
-  const canApplyScan = scan && (
-    (scan.fields.number && !invoiceNumber) || (scan.fields.supplier && !party) ||
-    (!original && ((scan.fields.date && !dateEdited) || (scan.fields.currency && !currencyEdited))) ||
-    (scan.items.length > 0 && canImportItems)
-  );
 
   useEffect(() => {
     const node = dialog.current;
@@ -68,26 +63,30 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
     setReading(true);
     try {
       const { scanInvoice } = await import('@/lib/scan-invoice');
-      const result = await scanInvoice(attachment, value => setProgress(previous => Math.max(previous, value)));
-      if (Object.values(result.fields).some(Boolean) || result.items.length) setScan(result);
-      else setScanStatus(t('تعذّرت قراءة بيانات الفاتورة. أدخلها يدويًا.', 'Could not read the invoice details. Enter them manually.'));
+      const result = await scanInvoice(attachment, value => setProgress(previous => Math.max(previous, value)), true);
+      if (Object.values(result.fields).some(Boolean) || result.items.length) {
+        setScan(result);
+        fillInvoice(result);
+      } else setScanStatus(t('تعذّرت قراءة بيانات الفاتورة. أدخلها يدويًا.', 'Could not read the invoice details. Enter them manually.'));
     } catch {
       setScanStatus(t('تعذّرت قراءة الملف. أدخل البيانات يدويًا.', 'Could not read the file. Enter the details manually.'));
     } finally { setReading(false); }
   }
 
-  function applyScan(result: InvoiceScan) {
+  function fillInvoice(result: InvoiceScan) {
     const { fields, items: scannedItems } = result;
     if (fields.number && !invoiceNumber) setInvoiceNumber(fields.number);
     if (fields.supplier && !party) setParty(fields.supplier);
-    if (fields.date && !original && !dateEdited) setDate(fields.date);
+    if (!original && !dateEdited) setDate(fields.date ?? '');
     if (fields.currency && !original && !currencyEdited) setCurrency(fields.currency);
     if (scannedItems.length && canImportItems) {
       setItems(scannedItems.map(item => ({
         id: nextId.current++, name: item.name, quantity: String(item.quantity), unit: item.unit, price: (item.unit_price / 100).toFixed(2),
       })));
     }
-    setScanStatus(t('راجع الحقول والأصناف قبل الحفظ.', 'Review the fields and products before saving.'));
+    if (fields.number || fields.supplier || fields.date || fields.currency || scannedItems.length) {
+      setScanStatus(t('راجع البيانات المعبّأة وعدّلها قبل الحفظ.', 'Review and edit the filled fields before saving.'));
+    }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -137,18 +136,12 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
           {attachment && <button type="button" className="btn secondary" onClick={readInvoice}><ScanText size={16} />{reading ? t('جارٍ القراءة…', 'Reading…') : t('قراءة بيانات الفاتورة', 'Read invoice details')}</button>}
           {reading && <progress value={progress} max={100} aria-label={t('تقدّم قراءة الفاتورة', 'Invoice reading progress')} />}
           {scan && <div className="scan-result">
-            <p role="status">
-              {[scan.fields.supplier, scan.fields.number, scan.fields.date].filter(Boolean).join(' · ')}
-              {scan.fields.total && <span> {t('إجمالي المرفق', 'Attachment total')} {scan.fields.currency
+            {scan.fields.total && <p>{t('إجمالي المرفق', 'Attachment total')} {scan.fields.currency
                 ? <MoneyAmount amount={minor(scan.fields.total)} currency={scan.fields.currency} lang={lang} />
-                : <bdi>{scan.fields.total}</bdi>}</span>}
-            </p>
+                : <bdi>{scan.fields.total}</bdi>}</p>}
             {scan.pagesRead < scan.pageCount && <p>{t('تمت قراءة بعض الصفحات فقط.', 'Only some pages were read.')}</p>}
             {!scan.fields.date && !dateEdited && !original && <p>{t('تحقق من تاريخ الفاتورة.', 'Check the invoice date.')}</p>}
             <p>{scan.items.length ? t('عدد الأصناف المقروءة ', 'Products read ') + scan.items.length : t('أدخل الأصناف يدويًا.', 'Enter the products manually.')}</p>
-            {!scanStatus && canApplyScan && <button className="btn secondary" type="button" onClick={() => applyScan(scan)}>
-              <Check size={16} />{t('تعبئة الحقول المتاحة', 'Fill available fields')}
-            </button>}
           </div>}
           {scanStatus && <p role="status">{scanStatus}</p>}
         </div>

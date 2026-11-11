@@ -64,8 +64,17 @@ export function extractInvoiceFields(source: string, useLetterhead = true): Invo
   });
   const labeled = totals(strongTotal);
   const candidates = labeled.length ? labeled : totals(simpleTotal);
-  const dateLines = lines.filter(line => /^(?:(?:invoice\s*)?date|تاريخ\s*(?:الفاتورة|الإصدار|الاصدار)?)(?=\s|[:：]|\d|$)/i.test(line));
-  const numbers = lines.map(line => line.match(/(?:^|\s)(?:invoice\s*(?:number|no\b\.?|#)|رقم\s*الفاتورة)\s*[:#：-]?\s*([A-Za-z0-9][A-Za-z0-9/_-]{0,39})(?=\s*(?:$|[|\u0600-\u06ff]))/i)?.[1]);
+  const dateLines = lines.flatMap(line => {
+    const label = /(?:^date\b|\binvoice\s*date\b|تاريخ\s*(?:الفاتورة|الإصدار|الاصدار))\s*[:：]?/i.exec(line);
+    return label ? [line.slice(label.index + label[0].length)] : [];
+  });
+  const numbers = lines.map(line => {
+    const label = /(?:^|[\s(|])(?:invoice\s*(?:number|no\b\.?|#)|رقم\s*الفاتورة)/i.exec(line);
+    if (!label) return undefined;
+    const trailing = line.slice(label.index + label[0].length);
+    return trailing.match(/^\s*[:#：-]?\s*([A-Za-z0-9][A-Za-z0-9/_-]{0,39})(?=\s*(?:$|[|\u0600-\u06ff]))/)?.[1] ??
+      trailing.match(/^\s*[:#：.·-]?\s*0?\s+(\d{4,12})(?=\s*(?:$|[|\u0600-\u06ff]))/)?.[1];
+  });
   const suppliers = lines.map(line => line.match(/^(?:supplier|vendor|seller|المورد|البائع)\s*[:：]\s*(.{2,120})$/i)?.[1]);
   // Some invoices print the seller's letterhead without a field label.
   const letterhead = lines.slice(0, 5).map(line =>
