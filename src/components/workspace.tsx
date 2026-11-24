@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { ChartNoAxesCombined, CircleDollarSign, ClipboardList, Globe2, LayoutDashboard, LockKeyhole, LogOut, Menu, Plus, ReceiptText, RefreshCw, Ship, ShoppingBag, Wallet, X } from 'lucide-react';
+import { ChartNoAxesCombined, CircleDollarSign, ClipboardList, Globe2, LayoutDashboard, LogOut, Menu, Plus, ReceiptText, RefreshCw, Ship, ShoppingBag, Wallet, X } from 'lucide-react';
 import { activeEntries, emptyData, type Container, type Dataset, type Lang } from '@/lib/domain';
 import { debtAccounts, debtAccountKey } from '@/lib/debt-accounts';
 import { advanceContainer, configured, downloadReceipt, loadData, reviseEntry, saveAccountNote, saveCashTransfer, saveContainerManifest, saveDebtMovement, saveEntry, saveLoad, setCustodyExclusion, supabase, uploadReceipt } from '@/lib/storage';
@@ -14,6 +14,7 @@ import { Shipments } from './shipments';
 import { Dashboard, Ledger } from './views';
 import { Reports } from './reports';
 import { CashTransferEditor, Custody, CustodyExclusionEditor, InvoicePaymentEditor } from './custody';
+import { SignIn } from './sign-in';
 
 const navigation = [
   { id: 'overview', labels: ['نظرة عامة', 'Overview'], icon: LayoutDashboard },
@@ -28,10 +29,10 @@ const navigation = [
 type Section = typeof navigation[number]['id'];
 const languageKey = 'alsindbad.language';
 
-function Brand({ logoOnly = false }: { logoOnly?: boolean }) {
+function Brand() {
   return <div className="brand">
-    <span className="brand-logo"><img src="/brand/alsindbad-logo.svg" width={767} height={771} alt={logoOnly ? 'ALSINDBAD' : ''} /></span>
-    {!logoOnly && <div><strong lang="ar">السندباد</strong><small lang="en">ALSINDBAD</small></div>}
+    <span className="brand-logo"><img src="/brand/alsindbad-logo.svg" width={721} height={731} alt="" /></span>
+    <div><strong lang="ar">السندباد</strong><small lang="en">ALSINDBAD</small></div>
   </div>;
 }
 
@@ -177,24 +178,8 @@ export default function Workspace() {
   }
   const languageButton = <button className="btn secondary lang-btn" onClick={switchLanguage}><Globe2 size={16} /><span>{t('English', 'العربية')}</span></button>;
 
-  if (!authReady || !userId) return <main className="gate">
-    <div className="gate-top">{languageButton}</div>
-    <div className="gate-grid">
-      <div className="gate-art"><Brand logoOnly /></div>
-      <section className="gate-card">
-        <span className="metric-icon green"><LockKeyhole size={20} /></span>
-        <h1>{!authReady ? t('جارٍ التحميل…', 'Loading…') : configured ? t('تسجيل الدخول', 'Sign in') : t('مساحة عمل خاصة', 'Private workspace')}</h1>
-        {authReady && (configured ?
-          <form className="login-form" onSubmit={signIn}>
-            <label className="field"><span>{t('البريد الإلكتروني', 'Email address')}</span><input type="email" dir="ltr" name="email" autoComplete="username" required /></label>
-            <label className="field"><span>{t('كلمة المرور', 'Password')}</span><input type="password" dir="ltr" name="password" autoComplete="current-password" required /></label>
-            <button className="btn primary" disabled={busy}>{busy ? t('جارٍ الدخول…', 'Signing in…') : t('دخول', 'Sign in')}</button>
-          </form>
-          : <p>{t('مساحة العمل بانتظار تفعيل تسجيل الدخول.', 'Sign-in setup is required to open this workspace.')}</p>)}
-        {error && <p className="error-box" role="alert">{error}</p>}
-      </section>
-    </div>
-  </main>;
+  if (!authReady || !userId) return <SignIn lang={lang} ready={authReady} configured={configured}
+    busy={busy} error={error} submit={signIn} switchLanguage={switchLanguage} />;
 
   const current = navigation.find(page => page.id === section)!;
   const entries = [...data.entries].sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at));
