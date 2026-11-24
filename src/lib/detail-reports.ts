@@ -35,7 +35,7 @@ export function containerReport(data: Dataset, container: Container, lang: Lang)
   };
   const expenses: ExportTable = {
     title: t('مصاريف الحاوية', 'Container expenses'),
-    columns: [textColumn(t('التاريخ', 'Date'), 16), textColumn(t('نوع المصروف', 'Category')), textColumn(t('الوصف', 'Description'), 36),
+    columns: [textColumn(t('التاريخ', 'Date'), 24), textColumn(t('نوع المصروف', 'Category')), textColumn(t('الوصف', 'Description'), 36),
       textColumn(t('الجهة', 'Party')), amountColumn(t('المبلغ الأصلي', 'Original amount')), textColumn(t('العملة', 'Currency'), 12), sar, pound, textColumn(t('ملاحظات', 'Notes'), 36)],
     rows: cost.expenses.map(row => [row.date, row.category, row.description, row.party, money(row.amount), row.currency, money(baseAmount(row)), gbp(baseAmount(row)), row.notes ?? '']),
   };
