@@ -23,7 +23,8 @@ export function DebtEditorDialog({ editor, data, lang, close, save }: {
   const defaultDate = original?.date ?? today();
   const originalSar = original ? toSar(original.amount, original.rate) : null;
   const [currency, setCurrency] = useState<Currency>(original?.currency ?? debt?.currency ?? movement?.currency ?? 'SAR');
-  const [party, setParty] = useState(original?.party ?? movement?.party ?? '');
+  const [enteredParty, setEnteredParty] = useState(original?.party ?? '');
+  const party = movement?.party ?? enteredParty;
   const [direction, setDirection] = useState<MovementDirection>(movement?.direction ?? 'take');
   const [scope, setScope] = useState<Entry['scope']>(original?.scope ?? movement?.scope ?? 'business');
   const [date, setDate] = useState(defaultDate);
@@ -164,11 +165,11 @@ export function DebtEditorDialog({ editor, data, lang, close, save }: {
                 </label>
               </div>
             </fieldset>}
-            <Field title={t('اسم الشخص أو الجهة', 'Person or company')} wide>
-              <input name="party" value={party} onChange={event => setParty(event.target.value)}
-                list={movement && !movement.party ? 'debt-people' : undefined} readOnly={hasPayments || Boolean(movement?.party)} maxLength={120} required />
-              {movement && !movement.party && <datalist id="debt-people">{debtAccounts(data.entries).map(account => <option key={account.key} value={account.name} />)}</datalist>}
-            </Field>
+            {movement?.party ? <p className="field-wide form-note"><strong>{movement.party}</strong></p> : <Field title={t('اسم الشخص أو الجهة', 'Person or company')} wide>
+              <input name="party" value={party} onChange={event => setEnteredParty(event.target.value)}
+                list={movement ? 'debt-people' : undefined} readOnly={hasPayments} maxLength={120} required />
+              {movement && <datalist id="debt-people">{debtAccounts(data.entries).map(account => <option key={account.key} value={account.name} />)}</datalist>}
+            </Field>}
           </>}
           <Field title={debt ? t('مبلغ الدفعة', 'Payment amount') + ' (' + currency + ')' : t('المبلغ', 'Amount')} wide={Boolean(debt)}>
             <input name="amount" type="number" inputMode="decimal" min="0.01" max={debt ? balance / 100 : 1000000000} step="0.01" value={amount} onChange={event => setAmount(event.target.value)} required />

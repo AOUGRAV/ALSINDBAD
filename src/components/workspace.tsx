@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { ChartNoAxesCombined, CircleDollarSign, ClipboardList, Globe2, LayoutDashboard, LockKeyhole, LogOut, MapPin, Menu, Plus, ReceiptText, RefreshCw, Ship, ShoppingBag, Wallet, X } from 'lucide-react';
 import { activeEntries, emptyData, type Container, type Dataset, type Lang } from '@/lib/domain';
-import { debtAccountKey } from '@/lib/debt-accounts';
+import { debtAccounts, debtAccountKey } from '@/lib/debt-accounts';
 import { advanceContainer, configured, downloadReceipt, loadData, reviseEntry, saveAccountNote, saveCashTransfer, saveContainerManifest, saveDebtMovement, saveEntry, saveLoad, setCustodyExclusion, supabase, uploadReceipt } from '@/lib/storage';
 import { EditorDialog, errorMessage, translate, type Editor, type RecordChange } from './forms';
 import { DebtEditorDialog } from './debt-editor';
@@ -206,7 +206,13 @@ export default function Workspace() {
   function openEditor() {
     if (section === 'shipments') setEditor({ type: 'manifest' });
     else if (section === 'custody') setEditor({ type: 'entry', kind: 'funding', fundingOnly: true });
-    else if (section === 'debts') setEditor({ type: 'movement' });
+    else if (section === 'debts') {
+      const account = debtAccounts(currentEntries).find(item => item.key === debtAccountId);
+      const balances = [...(account?.balances.values() ?? [])];
+      setEditor({ type: 'movement', party: account?.name,
+        currency: new Set(balances.map(balance => balance.currency)).size === 1 ? balances[0].currency : undefined,
+        scope: new Set(balances.map(balance => balance.scope)).size === 1 ? balances[0].scope : undefined });
+    }
     else if (expenseView) setEditor({ type: 'entry', kind: 'expense', expenseOnly: true });
     else if (section === 'purchases' || section === 'receipts') setEditor({ type: 'purchase' });
     else setEditor({ type: 'entry', kind: 'expense' });
