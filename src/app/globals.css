@@ -27,6 +27,29 @@ bdi { font-variant-numeric: tabular-nums; }
 .money-equivalent { display: block; font-size: .75em; font-weight: 500; opacity: .82; line-height: 1.25; }
 .field > .money-equivalent { font-size: 11px; color: var(--muted); }
 .muted { color: var(--muted); }
+.record-note { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; margin-block: 7px; }
+.field textarea { width: 100%; min-height: 90px; padding: 10px 12px; border: 1px solid #cddbd0; border-radius: 10px; background: white; color: var(--ink); font-size: 14px; font-weight: 400; line-height: 1.6; resize: vertical; }
+.account-notes { display: grid; justify-items: start; gap: 9px; margin-block: 16px; width: 100%; }
+.account-notes .field { width: 100%; }
+.statement-note { margin-block: 12pt; }
+.custody-actions { margin-bottom: 15px; }
+.custody-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.custody-filters .field { flex: 1 1 170px; }
+.custody-opening { display: flex; flex-wrap: wrap; gap: 12px; margin-block: 15px; }
+.metric-grid.custody-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-block: 15px; }
+.custody-balances { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; padding: 18px; margin-bottom: 15px; }
+.custody-balances > div { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; min-width: 0; }
+.custody-row + .custody-row { border-top: 1px solid var(--border); }
+.custody-transfer { display: flex; flex-wrap: wrap; align-items: center; gap: 15px; padding: 16px; }
+.custody-transfer > div:first-child { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
+.custody-transfer small { display: block; color: var(--muted); margin-top: 5px; }
+.custody-row-balance { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding: 10px 16px; background: #f1f7f3; font-size: 13px; }
+.custody-row-balance > strong { margin-inline-start: auto; }
+@media (max-width: 480px) {
+  .metric-grid.custody-metrics, .custody-balances { grid-template-columns: 1fr; }
+  .custody-metrics .metric-value { font-size: 23px; }
+  .field textarea { font-size: 16px; }
+}
 .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .btn, .icon-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
@@ -320,6 +343,7 @@ body:has(.editor[open]) { overflow: hidden; }
   .gate-art .brand-logo { width: clamp(154px, 33vw, 184px); }
 }
 @media (pointer: coarse), (max-width: 640px) {
+  .field textarea { font-size: 16px; }
   .btn, .icon-btn { min-height: 44px; }
   .icon-btn { min-width: 44px; }
   .entry-actions .icon-btn { min-height: 44px; }

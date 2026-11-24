@@ -81,12 +81,12 @@ export function Reports({ data, lang }: { data: Dataset; lang: Lang }) {
     };
     if (kind === 'purchases') return {
       headers: [date, invoiceNumber, party, currency, t('قبل الضريبة', 'Before VAT'), t('الضريبة', 'VAT') + ' ' + invoiceVatPercent + '%',
-        t('الإجمالي', 'Total'), t('المدفوع', 'Paid'), sar],
+        t('الإجمالي', 'Total'), t('المدفوع', 'Paid'), sar, t('ملاحظات', 'Notes')],
       rows: sorted(filtered.filter(e => e.kind === 'purchase')).map(e => {
         const totals = e.invoice_items && invoiceTotals(e.invoice_items);
         const paid = e.paid + debtPrincipal(e) - debtBalance(e, entries);
         return [e.date, e.invoice_number ?? '—', e.party, e.currency, totals ? totals.subtotal / 100 : '—',
-          totals ? totals.vat / 100 : '—', e.amount / 100, paid / 100, baseAmount(e) / 100];
+          totals ? totals.vat / 100 : '—', e.amount / 100, paid / 100, baseAmount(e) / 100, e.notes ?? ''];
       }),
       numeric: [4, 5, 6, 7, 8],
       sar: [8], currencyColumn: 3,
@@ -113,9 +113,9 @@ export function Reports({ data, lang }: { data: Dataset; lang: Lang }) {
       sar: [8, 9], currencyColumn: 6,
     };
     return {
-      headers: [date, type, party, t('الوصف', 'Description'), t('التصنيف', 'Category'), scopeName, original, currency, t('سعر الصرف', 'FX rate'), sar, t('حركة النقد (SAR)', 'Cash movement (SAR)')],
+      headers: [date, type, party, t('الوصف', 'Description'), t('التصنيف', 'Category'), scopeName, original, currency, t('سعر الصرف', 'FX rate'), sar, t('حركة النقد (SAR)', 'Cash movement (SAR)'), t('ملاحظات', 'Notes')],
       rows: sorted(filtered.filter(e => (!entryKind || e.kind === entryKind) && (!scope || e.scope === scope))).map(e =>
-        [e.date, e.opening ? t('دين افتتاحي', 'Opening debt') : t(...kindLabels[e.kind]), e.party, e.description, e.category, scopeText(e.scope), e.amount / 100, e.currency, e.rate, baseAmount(e) / 100, cashAmount(e, true) / 100]),
+        [e.date, e.opening ? t('دين افتتاحي', 'Opening debt') : t(...kindLabels[e.kind]), e.party, e.description, e.category, scopeText(e.scope), e.amount / 100, e.currency, e.rate, baseAmount(e) / 100, cashAmount(e, true) / 100, e.notes ?? '']),
       numeric: [6, 9, 10],
       sar: [9, 10], currencyColumn: 7,
     };

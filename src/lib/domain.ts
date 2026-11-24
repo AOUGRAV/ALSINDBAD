@@ -15,6 +15,7 @@ export const kindLabels: Record<Kind, [string, string]> = {
 export const entrySchema = z.object({
   id: z.uuid(), date: z.iso.date(), kind: z.enum(kinds), party: z.string().trim().max(120),
   description: z.string().trim().min(1).max(500), category: z.string().trim().min(1).max(80),
+  notes: z.string().trim().max(2000).nullish(),
   scope: z.enum(['business', 'personal']), currency: z.enum(currencies),
   amount: z.number().int().positive().max(100_000_000_000),
   paid: z.number().int().nonnegative(), rate: z.number().positive().max(10000)
@@ -57,7 +58,13 @@ export type InvoiceLoad = InvoiceLoadDraft & { container_id: string; cost_sar: n
 export type LoadDraft = { id: string; container_id: string; product_id: string; quantity: number; created_at: string };
 export type Load = LoadDraft & { cost_sar: number };
 export type EntryHistory = { entry_id: string; revision: number; action: 'correct' | 'void'; reason: string; previous: Entry; recorded_at: string };
-export type Dataset = { entries: Entry[]; products: Product[]; containers: Container[]; loads: Load[]; invoice_loads: InvoiceLoad[]; history: EntryHistory[] };
+export type AccountNote = { party_key: string; notes: string; revision: number };
+export type CashTransfer = {
+  id: string; date: string; amount: number; currency: Currency; rate: number;
+  from_account: 'cash' | 'bank'; notes: string; created_at: string; revision: number; voided_at: string | null;
+};
+export type Dataset = { entries: Entry[]; products: Product[]; containers: Container[]; loads: Load[]; invoice_loads: InvoiceLoad[]; history: EntryHistory[];
+  account_notes?: AccountNote[]; cash_transfers?: CashTransfer[] };
 export const emptyData = (): Dataset => ({ entries: [], products: [], containers: [], loads: [], invoice_loads: [], history: [] });
 export const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
 export const minor = (value: string | number) => Math.round(Number(value) * 100);
@@ -116,7 +123,7 @@ export function prepareDebtEntry(draft: DebtDraft, data: Dataset, original?: Ent
 }
 
 type PurchaseInvoiceDraft = Pick<Entry, 'id' | 'created_at' | 'date' | 'party' | 'description' | 'category' | 'currency' | 'rate' | 'method'> &
-  { invoice_number: string; invoice_items: InvoiceItem[]; paid?: number };
+  { invoice_number: string; invoice_items: InvoiceItem[]; paid?: number; notes?: string };
 
 export function preparePurchaseInvoice(draft: PurchaseInvoiceDraft, data: Dataset, original?: Entry) {
   const totals = invoiceTotals(draft.invoice_items);

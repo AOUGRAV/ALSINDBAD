@@ -3,10 +3,10 @@ import { translate } from './forms';
 import { MoneyAmount } from './money-amount';
 
 type StatementBalance = Pick<Entry, 'amount' | 'currency' | 'scope'>;
-export type StatementMovement = Pick<Entry, 'date' | 'amount' | 'currency' | 'scope' | 'description'> & { key: string; label: string };
+export type StatementMovement = Pick<Entry, 'date' | 'amount' | 'currency' | 'scope' | 'description' | 'notes'> & { key: string; label: string };
 
-export function AccountStatement({ name, balances, movements, lang }: {
-  name: string; balances: StatementBalance[]; movements: StatementMovement[]; lang: Lang;
+export function AccountStatement({ name, notes, balances, movements, lang }: {
+  name: string; notes?: string; balances: StatementBalance[]; movements: StatementMovement[]; lang: Lang;
 }) {
   const t = translate(lang);
   const scope = (value: Entry['scope']) => value === 'personal' ? t('شخصي', 'Personal') : t('تجاري', 'Business');
@@ -16,6 +16,7 @@ export function AccountStatement({ name, balances, movements, lang }: {
         <h1>{t('كشف حساب', 'Account statement')}</h1><p className="statement-name">{name}</p></div>
       <div className="statement-date">{t('تاريخ الإصدار', 'Issued on')}<bdi>{today()}</bdi></div>
     </header>
+    {notes && <p className="record-note statement-note">{notes}</p>}
     <section className="statement-summary">
       <h2>{t('الرصيد الحالي', 'Current balance')}</h2>
       {!balances.length && <p>{t('الرصيد صفر', 'Zero balance')}</p>}
@@ -31,7 +32,8 @@ export function AccountStatement({ name, balances, movements, lang }: {
       <tbody>{[...movements].reverse().map(row => <tr key={row.key}>
         <td><bdi>{row.date}</bdi></td>
         <td><strong>{row.label}</strong> <span className="statement-scope">· {scope(row.scope)}</span>
-          {row.description !== row.label && <span className="statement-description">{row.description}</span>}</td>
+          {row.description !== row.label && <span className="statement-description">{row.description}</span>}
+          {row.notes && <span className="statement-description record-note">{row.notes}</span>}</td>
         <td><MoneyAmount amount={row.amount} currency={row.currency} lang={lang} /></td>
       </tr>)}</tbody>
     </table>

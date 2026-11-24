@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { ChartNoAxesCombined, CircleDollarSign, ClipboardList, Globe2, LayoutDashboard, LockKeyhole, LogOut, MapPin, Menu, Plus, ReceiptText, RefreshCw, Ship, ShoppingBag, X } from 'lucide-react';
+import { ChartNoAxesCombined, CircleDollarSign, ClipboardList, Globe2, LayoutDashboard, LockKeyhole, LogOut, MapPin, Menu, Plus, ReceiptText, RefreshCw, Ship, ShoppingBag, Wallet, X } from 'lucide-react';
 import { activeEntries, emptyData, type Container, type Dataset, type Lang } from '@/lib/domain';
 import { debtAccountKey } from '@/lib/debt-accounts';
-import { advanceContainer, configured, downloadReceipt, loadData, reviseEntry, saveContainerManifest, saveDebtMovement, saveEntry, saveLoad, supabase, uploadReceipt } from '@/lib/storage';
+import { advanceContainer, configured, downloadReceipt, loadData, reviseEntry, saveAccountNote, saveCashTransfer, saveContainerManifest, saveDebtMovement, saveEntry, saveLoad, supabase, uploadReceipt } from '@/lib/storage';
 import { EditorDialog, errorMessage, translate, type Editor, type RecordChange } from './forms';
 import { DebtEditorDialog } from './debt-editor';
 import { DebtAccounts } from './debt-accounts';
@@ -13,10 +13,12 @@ import { ShipmentEditor } from './shipment-editor';
 import { Shipments } from './shipments';
 import { Dashboard, Ledger } from './views';
 import { Reports } from './reports';
+import { CashTransferEditor, Custody } from './custody';
 
 const navigation = [
   { id: 'overview', labels: ['نظرة عامة', 'Overview'], icon: LayoutDashboard },
   { id: 'ledger', labels: ['الحركات المالية', 'Transactions'], icon: ClipboardList },
+  { id: 'custody', labels: ['العهدة', 'Custody'], icon: Wallet },
   { id: 'purchases', labels: ['المشتريات والمصاريف', 'Purchases and expenses'], icon: ShoppingBag },
   { id: 'debts', labels: ['الديون والسلف', 'Debts and advances'], icon: CircleDollarSign },
   { id: 'shipments', labels: ['الحاويات والشحن', 'Containers'], icon: Ship },
@@ -131,7 +133,11 @@ export default function Workspace() {
     window.scrollTo(0, 0);
   }
   async function record(change: RecordChange) {
-    if (change.type === 'entry') {
+    if (change.type === 'account-note') {
+      await saveAccountNote(change.value, change.expected);
+    } else if (change.type === 'transfer') {
+      await saveCashTransfer(change.value, change.expected, change.remove);
+    } else if (change.type === 'entry') {
       const entry = change.value;
       if (change.receipt) entry.receipt_path = await uploadReceipt(change.receipt, entry.id);
       if (change.original) await reviseEntry(change.original, change.reason, entry);
@@ -193,10 +199,11 @@ export default function Workspace() {
   const currentEntries = activeEntries(entries);
   const ready = loadedFor === userId;
   const expenseView = section === 'purchases' && purchaseView === 'expense';
-  const action = section === 'shipments' ? t('حاوية جديدة', 'New container') : expenseView ? t('إضافة مصروف', 'Add expense') :
+  const action = section === 'custody' ? t('استلام عهدة', 'Receive funds') : section === 'shipments' ? t('حاوية جديدة', 'New container') : expenseView ? t('إضافة مصروف', 'Add expense') :
     section === 'purchases' || section === 'receipts' ? t('إضافة فاتورة', 'Add invoice') : section === 'debts' ? t('إضافة حركة', 'Add movement') : t('عملية جديدة', 'New transaction');
   function openEditor() {
     if (section === 'shipments') setEditor({ type: 'manifest' });
+    else if (section === 'custody') setEditor({ type: 'entry', kind: 'funding', fundingOnly: true });
     else if (section === 'debts') setEditor({ type: 'movement' });
     else if (expenseView) setEditor({ type: 'entry', kind: 'expense', expenseOnly: true });
     else if (section === 'purchases' || section === 'receipts') setEditor({ type: 'purchase' });
@@ -228,6 +235,7 @@ export default function Workspace() {
         {!ready && !error && <p role="status" className="panel empty">{t('جارٍ تحميل السجلات…', 'Loading records…')}</p>}
         {ready && <>
           {section === 'overview' && <Dashboard data={data} entries={currentEntries} lang={lang} navigate={navigate} onReceipt={receipt} edit={setEditor} />}
+          {section === 'custody' && <Custody data={data} lang={lang} edit={setEditor} onReceipt={receipt} />}
           {(section === 'ledger' || section === 'receipts') && <Ledger key={section} entries={entries} lang={lang} kind={section === 'receipts' ? 'receipts' : undefined} onReceipt={receipt} edit={setEditor} />}
           {section === 'purchases' && <>
             <div className="actions purchase-switch" role="group" aria-label={t('المشتريات والمصاريف', 'Purchases and expenses')}>
@@ -236,14 +244,16 @@ export default function Workspace() {
             </div>
             <Ledger key={purchaseView} entries={entries} lang={lang} kind={purchaseView} onReceipt={receipt} edit={setEditor} />
           </>}
-          {section === 'debts' && <DebtAccounts entries={currentEntries} lang={lang} selected={debtAccountId} select={setDebtAccountId} edit={setEditor} onReceipt={receipt} />}
+          {section === 'debts' && <DebtAccounts entries={currentEntries} notes={data.account_notes ?? []} save={record} lang={lang} selected={debtAccountId} select={setDebtAccountId} edit={setEditor} onReceipt={receipt} />}
           {section === 'shipments' && <Shipments data={data} lang={lang} selected={containerId} select={setContainerId} edit={setEditor} advance={changeStatus} updating={updating} onReceipt={receipt} />}
           {section === 'reports' && <Reports data={data} lang={lang} />}
         </>}
       </main>
     </div>
     {notice && <div className="toast no-print" role="status">{notice}</div>}
-    {editor && ready && (editor.type === 'manifest'
+    {editor && ready && (editor.type === 'transfer'
+      ? <CashTransferEditor original={editor.original} lang={lang} close={() => setEditor(null)} save={record} />
+      : editor.type === 'manifest'
       ? <ShipmentEditor container={editor.container} data={data} lang={lang} close={() => setEditor(null)} save={record} />
       : editor.type === 'purchase'
       ? <PurchaseEditorDialog editor={editor} data={data} lang={lang} close={() => setEditor(null)} save={record} />

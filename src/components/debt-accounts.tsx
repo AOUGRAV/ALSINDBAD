@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
-import { ArrowDownLeft, ArrowLeft, ArrowUpRight, Download, Pencil, Printer, Trash2 } from 'lucide-react';
+import { useState, type FormEvent } from 'react';
+import { ArrowDownLeft, ArrowLeft, ArrowUpRight, Check, Download, Pencil, Printer, Trash2 } from 'lucide-react';
 import { debtAccounts, debtAccountKey, movementDirection, type MovementDirection } from '@/lib/debt-accounts';
-import { debtPrincipal, debtSide, type DebtDirection, type Entry, type Lang } from '@/lib/domain';
+import { debtPrincipal, debtSide, type AccountNote, type DebtDirection, type Entry, type Lang } from '@/lib/domain';
 import { MoneyAmount } from './money-amount';
-import { translate, type Editor } from './forms';
+import { Field, errorMessage, translate, type Editor, type RecordChange } from './forms';
 import { Empty } from './views';
 import { AccountStatement } from './account-statement';
 
@@ -41,8 +41,38 @@ function AccountActions({ row, account, lang, edit, onReceipt }: {
   </div>;
 }
 
-export function DebtAccounts({ entries, lang, selected, select, edit, onReceipt }: {
+function AccountNotes({ partyKey, note, lang, save }: {
+  partyKey: string; note?: AccountNote; lang: Lang; save: (change: RecordChange) => Promise<void>;
+}) {
+  const t = translate(lang);
+  const [value, setValue] = useState(note?.notes ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [saved, setSaved] = useState(false);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      await save({ type: 'account-note', value: { party_key: partyKey, notes: value.trim() }, expected: note?.revision ?? 0 });
+      setSaved(true);
+    } catch (problem) { setError(errorMessage(problem)); }
+    finally { setBusy(false); }
+  }
+  return <form className="account-notes" onSubmit={submit}>
+    <Field title={t('ملاحظات الحساب (اختياري)', 'Account notes (optional)')} wide>
+      <textarea aria-label={t('ملاحظات الحساب (اختياري)', 'Account notes (optional)')} value={value} maxLength={2000} rows={3} disabled={busy} onChange={event => { setValue(event.target.value); setSaved(false); }} />
+    </Field>
+    <button className="btn secondary" disabled={busy || saved || value.trim() === (note?.notes ?? '')}><Check size={16} />{busy ? t('جارٍ الحفظ…', 'Saving…') : t('حفظ الملاحظات', 'Save notes')}</button>
+    {saved && <p role="status">{t('تم حفظ الملاحظات.', 'Notes saved.')}</p>}
+    {error && <p className="error-box" role="alert">{error}</p>}
+  </form>;
+}
+
+export function DebtAccounts({ entries, notes = [], save, lang, selected, select, edit, onReceipt }: {
   entries: Entry[]; lang: Lang; selected: string | null; select: (key: string | null) => void;
+  notes?: AccountNote[]; save: (change: RecordChange) => Promise<void>;
   edit: (editor: Editor) => void; onReceipt: (path: string) => void;
 }) {
   const t = translate(lang);
@@ -90,13 +120,15 @@ export function DebtAccounts({ entries, lang, selected, select, edit, onReceipt 
       ? (inbound ? t('رصيد افتتاحي علينا', 'Opening payable') : t('رصيد افتتاحي لنا', 'Opening receivable'))
       : inbound ? t('أخذت منه', 'Received') : t('أعطيته', 'Paid');
     const amount = rows.reduce((sum, row) => sum + (row.kind === 'purchase' ? debtPrincipal(row) : row.amount), 0);
-    return { key, rows, first, label, amount, date: first.date, scope: first.scope, currency: first.currency, description: first.description };
+    return { key, rows, first, label, amount, date: first.date, scope: first.scope, currency: first.currency, description: first.description, notes: first.notes };
   });
 
   return <><section className="panel record-card shipment-detail no-print">
     <button className="btn secondary" onClick={() => select(null)}><ArrowLeft className="shipment-back" size={15} />{t('كل الحسابات', 'All accounts')}</button>
     <h2>{account.name}</h2>
     <AccountBalance account={account} lang={lang} />
+    <AccountNotes key={account.key + '/' + (notes.find(note => note.party_key === account.key)?.revision ?? 0)}
+      partyKey={account.key} note={notes.find(note => note.party_key === account.key)} lang={lang} save={save} />
     <div className="actions">
       <button className="btn primary" onClick={() => movement('take')}><ArrowDownLeft size={16} />{t('أخذت منه', 'Received')}</button>
       <button className="btn secondary" onClick={() => movement('give')}><ArrowUpRight size={16} />{t('أعطيته', 'Paid')}</button>
@@ -109,6 +141,7 @@ export function DebtAccounts({ entries, lang, selected, select, edit, onReceipt 
           <div className="manifest-invoice-head"><div><strong>{label}</strong><small><bdi>{first.date}</bdi> · {first.scope === 'personal' ? t('شخصي', 'Personal') : t('تجاري', 'Business')}</small></div>
             <strong><MoneyAmount amount={amount} currency={first.currency} lang={lang} /></strong></div>
           {first.description !== label && <p>{first.description}</p>}
+          {first.notes && <p className="record-note">{first.notes}</p>}
           {rows.length === 1 ? <AccountActions row={first} account={account} lang={lang} edit={edit} onReceipt={onReceipt} /> :
             <details className="detail"><summary>{t('تفاصيل توزيع المبلغ', 'Allocation details')}</summary>
               {rows.map(row => <div className="split-line account-part" key={row.id}>
@@ -127,5 +160,5 @@ export function DebtAccounts({ entries, lang, selected, select, edit, onReceipt 
         </div>)}
       </details>}
     </div>
-  </section><AccountStatement name={account.name} balances={buckets} movements={movements} lang={lang} /></>;
+  </section><AccountStatement name={account.name} notes={notes.find(note => note.party_key === account.key)?.notes} balances={buckets} movements={movements} lang={lang} /></>;
 }

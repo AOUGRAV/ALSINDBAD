@@ -124,6 +124,7 @@ export function DebtEditorDialog({ editor, data, lang, close, save }: {
           ...fields, direction: debtDirection === 'receivable' ? 'receivable' : 'payable',
           party, category: original?.category ?? t('ديون', 'Debts'), currency, scope, opening,
         }, data, original);
+        entry.notes = original?.notes;
         await save({ type: 'entry', value: entry, receipt, original, reason: original ? t('تعديل من شاشة الديون', 'Edited from the debts screen') : '' });
       }
       close();
@@ -179,6 +180,9 @@ export function DebtEditorDialog({ editor, data, lang, close, save }: {
             </select>
           </Field>}
           {movement && <Field title={t('التاريخ', 'Date')} wide><input name="date" type="date" value={date} onChange={event => setDate(event.target.value)} required /></Field>}
+          <Field title={t('طريقة الدفع', 'Payment method')}><select name="method" defaultValue={original?.method ?? 'cash'}>
+            <option value="cash">{t('نقدًا', 'Cash')}</option><option value="bank">{t('تحويل بنكي', 'Bank transfer')}</option><option value="card">{t('بطاقة', 'Card')}</option>
+          </select></Field>
           {currency !== 'SAR' && <div className="field-wide debt-exchange">
             <Field title={enteringTotal ? t('إجمالي المبلغ بالريال', 'Total in SAR') :
               t('سعر صرف 1', 'SAR per 1') + ' ' + currency + (lang === 'ar' ? ' بالريال' : '')}>
@@ -204,9 +208,6 @@ export function DebtEditorDialog({ editor, data, lang, close, save }: {
           <summary>{t('تفاصيل اختيارية', 'Optional details')}</summary>
           <div className="form-grid">
             {!movement && <Field title={t('التاريخ', 'Date')}><input name="date" type="date" defaultValue={defaultDate} /></Field>}
-            <Field title={t('طريقة الدفع', 'Payment method')}><select name="method" defaultValue={original?.method ?? 'bank'}>
-              <option value="bank">{t('تحويل بنكي', 'Bank transfer')}</option><option value="cash">{t('نقدًا', 'Cash')}</option><option value="card">{t('بطاقة', 'Card')}</option>
-            </select></Field>
             {!debt && <Field title={t('النطاق', 'Scope')}><select name="scope" value={scope} onChange={event => setScope(event.target.value as Entry['scope'])} disabled={hasPayments}>
               <option value="business">{t('تجاري', 'Business')}</option><option value="personal">{t('شخصي', 'Personal')}</option>
             </select></Field>}

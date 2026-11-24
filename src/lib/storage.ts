@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { type Dataset, type Entry, type Container, type ContainerDraft, type InvoiceLoadDraft, type LoadDraft } from './domain';
+import { type AccountNote, type CashTransfer, type Dataset, type Entry, type Container, type ContainerDraft, type InvoiceLoadDraft, type LoadDraft } from './domain';
 import { receiptExtension } from './receipt';
 import { type DebtMovement, type MovementAllocation } from './debt-accounts';
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -21,8 +21,16 @@ export async function loadData(): Promise<Dataset> {
   if (error) throw error;
   if (!data) throw new Error('الحساب غير مصرّح له بدخول مساحة العمل / Account is not authorized');
   const snapshot = data as Dataset;
-  return { ...snapshot, entries: snapshot.entries.map(readEntry),
+  return { ...snapshot, cash_transfers: snapshot.cash_transfers ?? [], account_notes: snapshot.account_notes ?? [], entries: snapshot.entries.map(readEntry),
     history: snapshot.history.map(item => ({ ...item, previous: readEntry(item.previous) })) };
+}
+export async function saveAccountNote(value: Pick<AccountNote, 'party_key' | 'notes'>, expected: number) {
+  const { error } = await supabase().rpc('save_account_note', { party: value.party_key, note: value.notes, expected });
+  if (error) throw error;
+}
+export async function saveCashTransfer(value: CashTransfer, expected: number, remove = false) {
+  const { error } = await supabase().rpc('save_cash_transfer', { payload: value, expected, remove });
+  if (error) throw error;
 }
 export async function saveEntry(entry: Entry) {
   const { error } = await supabase().rpc('record_entry', { payload: entryPayload(entry) });

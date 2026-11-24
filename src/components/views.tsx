@@ -50,6 +50,7 @@ export function EntryTable({ entries, lang, onReceipt, edit, compact = false, pu
           <div><strong>{e.invoice_number ? <>{t('فاتورة شراء', 'Purchase invoice')} <bdi>{e.invoice_number}</bdi></> : e.description}</strong>
             {(e.party || !expenses) && <small>{e.party}{!e.invoice_number && !expenses && <>{e.party && ' · '}{t(...kindLabels[e.kind])}</>}{e.opening && <> · {t('رصيد افتتاحي', 'Opening balance')}</>}</small>}
             {!compact && <InvoiceDetail entry={e} lang={lang} />}
+            {e.notes && <p className="record-note">{e.notes}</p>}
             {e.voided_at && <span className="tag void-tag">{t('ملغاة', 'Voided')}</span>}</div></div></td>
         <td data-label={t('التاريخ', 'Date')}><bdi className="muted">{e.date}</bdi></td>
         {!compact && !purchases && <td data-label={t('التصنيف', 'Category')}><span className="tag">{e.category}</span><small className="table-sub">{e.scope === 'personal' ? t('شخصي', 'Personal') : t('تجاري', 'Business')}</small></td>}
@@ -134,7 +135,7 @@ export function Ledger({ entries, lang, kind, onReceipt, edit }: {
   const invoiceList = kind === 'purchase' || kind === 'receipts';
   const items = entries.filter(e => (kind === 'receipts' ? Boolean(e.receipt_path || e.invoice_number) : !kind || kind === e.kind) &&
     (showVoided || !e.voided_at) && (!scope || scope === e.scope) && (!month || e.date.startsWith(month)) &&
-    (!search || [e.party, e.description, e.category, e.currency, e.invoice_number ?? '', ...kindLabels[e.kind],
+    (!search || [e.party, e.description, e.category, e.currency, e.invoice_number ?? '', e.notes ?? '', ...kindLabels[e.kind],
       ...(e.invoice_items?.map(item => item.name) ?? [])].some(value => value.toLowerCase().includes(search))));
   return <section className="panel">
     <div className="filters ledger-filters">

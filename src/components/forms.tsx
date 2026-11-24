@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Check, Paperclip, ScanText, X } from 'lucide-react';
-import { currencies, kinds, kindLabels, debtBalance, inventory, minor, today, toSar, validateEntry, validateLoad, type Container, type ContainerDraft, type Currency, type Dataset, type Entry, type InvoiceLoadDraft, type Kind, type Lang, type LoadDraft } from '@/lib/domain';
+import { currencies, kinds, kindLabels, debtBalance, inventory, minor, today, toSar, validateEntry, validateLoad, type AccountNote, type CashTransfer, type Container, type ContainerDraft, type Currency, type Dataset, type Entry, type InvoiceLoadDraft, type Kind, type Lang, type LoadDraft } from '@/lib/domain';
 import { MoneyAmount, PoundEquivalent } from './money-amount';
 import { receiptAccept, receiptExtension } from '@/lib/receipt';
 import { type DebtMovement, type MovementAllocation, type MovementDirection } from '@/lib/debt-accounts';
@@ -11,14 +11,16 @@ export const translate = (lang: Lang) => (ar: string, en: string) => lang === 'a
 export const errorMessage = (error: unknown) => error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error);
 const field = (form: FormData, key: string) => String(form.get(key) ?? '').trim();
 const newRecord = () => ({ id: crypto.randomUUID(), created_at: new Date().toISOString() });
-export type RecordEditor = { type: 'entry'; kind?: Kind; container?: Container; original?: Entry; expenseOnly?: boolean } |
+export type RecordEditor = { type: 'entry'; kind?: Kind; container?: Container; original?: Entry; expenseOnly?: boolean; fundingOnly?: boolean } |
   { type: 'load'; container: Container } |
   { type: 'history'; original: Entry } | { type: 'void'; original: Entry; debtItem?: 'debt' | 'payment' };
 export type DebtEditor = { type: 'debt'; original?: Entry } | { type: 'settlement'; debt: Entry; original?: Entry } |
   { type: 'movement'; original?: never; party?: string; direction?: MovementDirection; currency?: Currency; scope?: Entry['scope'] };
 export type PurchaseEditor = { type: 'purchase'; original?: Entry };
-export type Editor = RecordEditor | DebtEditor | PurchaseEditor | { type: 'manifest'; container?: Container };
+export type Editor = RecordEditor | DebtEditor | PurchaseEditor | { type: 'manifest'; container?: Container } | { type: 'transfer'; original?: CashTransfer };
 export type RecordChange = { type: 'entry'; value: Entry; receipt?: File; original?: Entry; reason: string } |
+  { type: 'account-note'; value: Pick<AccountNote, 'party_key' | 'notes'>; expected: number } |
+  { type: 'transfer'; value: CashTransfer; expected: number; remove?: boolean } |
   { type: 'movement'; value: DebtMovement; allocations: MovementAllocation[]; receipt?: File } |
   { type: 'manifest'; value: ContainerDraft; lines: InvoiceLoadDraft[]; expected?: number } | { type: 'load'; value: LoadDraft } |
   { type: 'void'; original: Entry; reason: string };
@@ -63,8 +65,10 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
   }, []);
 
   const expenseOnly = Boolean(entry?.expenseOnly || original?.kind === 'expense');
+  const fundingOnly = Boolean(entry?.fundingOnly || original?.kind === 'funding');
   const title = editor.type === 'load' ? t('تحميل أصناف سابقة', 'Load legacy stock') :
     editor.type === 'void' ? (debtItem ? deleteTitle : t('إلغاء الحركة', 'Void transaction')) : editor.type === 'history' ? t('سجل التغييرات', 'Change history') :
+    fundingOnly ? (original ? t('تعديل استلام عهدة', 'Edit funds received') : t('استلام عهدة', 'Receive funds')) :
     expenseOnly ? (original ? t('تعديل المصروف', 'Edit expense') : t('إضافة مصروف', 'Add expense')) :
     original ? t('تصحيح الحركة', 'Correct transaction') : debt ? t('تسجيل دفعة', 'Record settlement') : t('عملية جديدة', 'New transaction');
   const unavailable = busy || reading;
@@ -111,8 +115,11 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
       if (editor.type === 'entry') {
         const product = data.products.find(p => p.id === field(form, 'product'));
         const record = validateEntry({
-          ...identity, kind, currency, scope, date, party: debt?.party ?? party,
-          description, category: debt?.category ?? (kind === 'purchase' ? product?.category : field(form, 'category')),
+          ...identity, kind, currency, scope: fundingOnly ? original?.scope ?? 'business' : scope, date,
+          party: debt?.party ?? (fundingOnly ? party || t('المالك', 'Owner') : party),
+          description: fundingOnly ? original?.description ?? t('استلام عهدة', 'Funds received') : description,
+          category: fundingOnly ? original?.category ?? t('عهدة', 'Custody') : debt?.category ?? (kind === 'purchase' ? product?.category : field(form, 'category')),
+          notes: field(form, 'notes'),
           amount: minor(amount), paid: kind === 'purchase' ? minor(field(form, 'paid')) : minor(amount),
           rate: currency === 'SAR' ? 1 : Number(rate), method: field(form, 'method'),
           product_id: kind === 'purchase' ? product?.id ?? null : null,
@@ -150,7 +157,7 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
     {expenseOnly && <Field title={t('الجهة (اختياري)', 'Payee (optional)')} wide><input name="party" value={party} onChange={event => setParty(event.target.value)} maxLength={120} /></Field>}
     <Field title={t('العملة', 'Currency')}><select value={currency} onChange={e => setCurrency(e.target.value as Currency)} disabled={Boolean(debt)}>{currencies.map(c => <option key={c}>{c}</option>)}</select></Field>
     {currency !== 'SAR' && <Field title={t('سعر صرف 1', 'SAR per 1') + ' ' + currency + (lang === 'ar' ? ' بالريال' : '')}><input type="number" inputMode="decimal" min="0.000001" max="10000" step="0.000001" value={rate} onChange={e => setRate(e.target.value)} placeholder={debt ? String(debt.rate) : undefined} required /></Field>}
-    <Field title={t('طريقة الدفع', 'Payment method')}><select name="method" defaultValue={original?.method ?? (expenseOnly ? 'cash' : 'bank')}><option value="bank">{t('تحويل بنكي', 'Bank transfer')}</option><option value="cash">{t('نقدًا', 'Cash')}</option><option value="card">{t('بطاقة', 'Card')}</option></select></Field>
+    <Field title={fundingOnly ? t('استلمته في', 'Received into') : t('طريقة الدفع', 'Payment method')}><select name="method" defaultValue={original?.method ?? (expenseOnly || fundingOnly ? 'cash' : 'bank')}><option value="bank">{fundingOnly ? t('البنك', 'Bank') : t('تحويل بنكي', 'Bank transfer')}</option><option value="cash">{t('نقدًا', 'Cash')}</option>{(!fundingOnly || original?.method === 'card') && <option value="card">{t('بطاقة', 'Card')}</option>}</select></Field>
     {kind === 'expense' && scope === 'business' && data.containers.length > 0 && <Field title={t('ربط بحاوية (اختياري)', 'Link to container (optional)')}><select name="container" defaultValue={original?.container_id ?? entry?.container?.id ?? ''}><option value="">{t('بدون حاوية', 'No container')}</option>{data.containers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>}
     {currency !== 'SAR' && Number(amount) > 0 && Number(amount) <= 1000000000 && Number(rate) > 0 && Number(rate) <= 10000 && <p className="form-note field-wide">{t('ما يعادله بالريال', 'SAR equivalent')}: <MoneyAmount amount={toSar(minor(amount), Number(rate))} lang={lang} /></p>}
     <Field title={original?.receipt_path ? t('استبدال الفاتورة المرفقة (اختياري)', 'Replace attached receipt (optional)') : t('فاتورة أو إيصال (اختياري)', 'Invoice or receipt (optional)')} wide>
@@ -186,6 +193,7 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
         <p>{item.reason}</p>
         <details><summary>{t('الحركة قبل التغيير', 'Transaction before the change')}</summary>
           <p>{item.previous.description} · {item.previous.party} · {item.previous.category}</p>
+          {item.previous.notes && <p className="record-note">{item.previous.notes}</p>}
           <p><bdi>{item.previous.date}</bdi> · <MoneyAmount amount={item.previous.amount} currency={item.previous.currency} lang={lang} /> · {t('سعر الصرف', 'FX rate')} <bdi>{item.previous.rate}</bdi></p>
           {item.previous.kind === 'purchase' && <p>{t('المدفوع', 'Paid')} <MoneyAmount amount={item.previous.paid} currency={item.previous.currency} lang={lang} /> · {t('الكمية', 'Quantity')} {item.previous.quantity}</p>}
           {item.previous.receipt_path && <button className="btn secondary" type="button" onClick={() => onReceipt(item.previous.receipt_path!)}>{t('تنزيل الفاتورة السابقة', 'Download previous receipt')}</button>}
@@ -194,7 +202,7 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
     </div> : <form onSubmit={submit}>
       <div className="form-grid">
         {editor.type === 'entry' && <>
-          {debt ? <p className="field-wide form-note">{debt.party} · {t('المتاح لهذه الدفعة', 'Available for this payment')}: <MoneyAmount amount={remaining} currency={debt.currency} lang={lang} /></p> : !expenseOnly &&
+          {debt ? <p className="field-wide form-note">{debt.party} · {t('المتاح لهذه الدفعة', 'Available for this payment')}: <MoneyAmount amount={remaining} currency={debt.currency} lang={lang} /></p> : !expenseOnly && !fundingOnly &&
             <Field title={t('نوع العملية', 'Transaction type')}><select value={kind} onChange={event => {
               const selected = event.target.value as Kind;
               if (selected === 'purchase' && !original) openPurchase();
@@ -203,15 +211,15 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
               {kinds.filter(k => k !== 'collect' && k !== 'repay').map(k => <option key={k} value={k}>{t(...kindLabels[k])}</option>)}
             </select></Field>}
           <Field title={t('التاريخ', 'Date')}><input type="date" name="date" value={date} onChange={event => setDate(event.target.value)} min={debt?.date} required /></Field>
-          {!debt && !expenseOnly && <Field title={t('المورد أو الجهة', 'Supplier or party')}><input name="party" value={party} onChange={event => setParty(event.target.value)} maxLength={120} required={kind !== 'expense'} /></Field>}
-          {!debt && <Field title={expenseOnly ? t('شخصي أو تجاري', 'Personal or business') : t('نطاق العملية', 'Scope')}><select value={scope} onChange={e => setScope(e.target.value as Entry['scope'])}><option value="business">{t('تجاري', 'Business')}</option><option value="personal">{t('شخصي', 'Personal')}</option></select></Field>}
-          {!expenseOnly && <Field title={t('الوصف', 'Description')} wide><input name="description" value={description} onChange={event => setDescription(event.target.value)} maxLength={500} required /></Field>}
+          {!debt && !expenseOnly && <Field title={fundingOnly ? t('استلمت من (اختياري)', 'Received from (optional)') : t('المورد أو الجهة', 'Supplier or party')}><input name="party" value={party} onChange={event => setParty(event.target.value)} maxLength={120} required={!fundingOnly && kind !== 'expense'} /></Field>}
+          {!debt && !fundingOnly && <Field title={expenseOnly ? t('شخصي أو تجاري', 'Personal or business') : t('نطاق العملية', 'Scope')}><select value={scope} onChange={e => setScope(e.target.value as Entry['scope'])}><option value="business">{t('تجاري', 'Business')}</option><option value="personal">{t('شخصي', 'Personal')}</option></select></Field>}
+          {!expenseOnly && !fundingOnly && <Field title={t('الوصف', 'Description')} wide><input name="description" value={description} onChange={event => setDescription(event.target.value)} maxLength={500} required /></Field>}
           {(kind === 'borrow' || kind === 'lend') && <label className="field-wide check-field"><input type="checkbox" name="opening" defaultChecked={original?.opening} />{t('دين سابق قبل بدء التسجيل (دون حركة نقدية)', 'Opening debt (no new cash movement)')}</label>}
           {kind === 'purchase' && <>
             <Field title={t('الصنف', 'Product')}><select name="product" required defaultValue={original?.product_id ?? ''}><option value="" disabled>{t('اختر صنفًا', 'Select product')}</option>{data.products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
             <Field title={t('الكمية', 'Quantity')}><input name="quantity" defaultValue={original?.quantity} type="number" min="1" max="100000000" step="1" inputMode="numeric" required /></Field>
           </>}
-          {!debt && kind !== 'purchase' && <Field title={kind === 'expense' ? t('نوع المصروف', 'Expense category') : t('التصنيف', 'Category')}><input name="category" defaultValue={original?.category} maxLength={80} list="categories" required />
+          {!debt && !fundingOnly && kind !== 'purchase' && <Field title={kind === 'expense' ? t('نوع المصروف', 'Expense category') : t('التصنيف', 'Category')}><input name="category" defaultValue={original?.category} maxLength={80} list="categories" required />
             <datalist id="categories">{categories.map(value => <option key={value} value={value} />)}</datalist>
           </Field>}
           <Field title={expenseOnly ? t('المبلغ', 'Amount') + ' (' + currency + ')' : t('المبلغ الإجمالي', 'Total amount')}><input type="number" inputMode="decimal" min="0.01" max={debt ? remaining / 100 : 1000000000} step="0.01" value={amount} onChange={e => setAmount(e.target.value)} required />
@@ -226,6 +234,7 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
             <summary>{t('تفاصيل اختيارية', 'Optional details')}</summary>
             <div className="form-grid">{entryOptions}</div>
           </details> : entryOptions}
+          <Field title={t('ملاحظات (اختياري)', 'Notes (optional)')} wide><textarea name="notes" aria-label={t('ملاحظات (اختياري)', 'Notes (optional)')} defaultValue={original?.notes ?? ''} maxLength={2000} rows={3} /></Field>
           {original && <Field title={t('سبب التصحيح', 'Correction reason')} wide><input name="reason" maxLength={500} required /></Field>}
         </>}
         {editor.type === 'load' && <>

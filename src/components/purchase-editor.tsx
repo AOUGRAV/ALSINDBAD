@@ -102,6 +102,7 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
       const number = invoiceNumber.trim();
       const entry = preparePurchaseInvoice({
         ...identity.current, party, date, invoice_number: number, invoice_items: invoiceItems, currency,
+        notes: value('notes'),
         category: original?.category ?? t('مشتريات', 'Purchases'),
         description: t('فاتورة شراء ', 'Purchase invoice ') + number,
         method: value('method') as Entry['method'], rate: currency === 'SAR' ? 1 : Number(value('rate')),
@@ -198,6 +199,9 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
         {scanFields?.total && totals && items.every(item => item.name.trim() && item.price) &&
           (!scanFields.currency || scanFields.currency === currency) && totals.total !== minor(scanFields.total) &&
           <p className="muted">{t('الإجمالي المحسوب يختلف عن إجمالي المرفق.', 'The calculated total differs from the attachment total.')}</p>}
+        <Field title={t('ملاحظات (اختياري)', 'Notes (optional)')} wide>
+          <textarea name="notes" aria-label={t('ملاحظات (اختياري)', 'Notes (optional)')} defaultValue={original?.notes ?? ''} maxLength={2000} rows={3} />
+        </Field>
         <details className="debt-more" open={partial || undefined}>
           <summary>{t('دفعة جزئية', 'Partial payment')}</summary>
           <div className="form-grid">
