@@ -50,6 +50,7 @@ export function EntryTable({ entries, lang, onReceipt, edit, compact = false, pu
           <div><strong>{e.invoice_number ? <>{t('فاتورة شراء', 'Purchase invoice')} <bdi>{e.invoice_number}</bdi></> : e.description}</strong>
             {(e.party || !expenses) && <small>{e.party}{!e.invoice_number && !expenses && <>{e.party && ' · '}{t(...kindLabels[e.kind])}</>}{e.opening && <> · {t('رصيد افتتاحي', 'Opening balance')}</>}</small>}
             {!compact && <InvoiceDetail entry={e} lang={lang} />}
+            {e.paid_outside_custody && <span className="tag">{t('دُفعت من خارج العهدة', 'Paid outside custody')}</span>}
             {e.notes && <p className="record-note">{e.notes}</p>}
             {e.voided_at && <span className="tag void-tag">{t('ملغاة', 'Voided')}</span>}</div></div></td>
         <td data-label={t('التاريخ', 'Date')}><bdi className="muted">{e.date}</bdi></td>
@@ -59,7 +60,7 @@ export function EntryTable({ entries, lang, onReceipt, edit, compact = false, pu
         {!compact && <td data-label={t('المرفق', 'Attachment')}>{e.receipt_path ? <button className="icon-btn" onClick={() => onReceipt(e.receipt_path!)} aria-label={t('تنزيل المرفق', 'Download attachment')}><Download size={16} /></button> : '—'}</td>}
         {edit && <td className="entry-actions" data-label={t('إدارة الحركة', 'Manage transaction')}><div className="actions">
           {!e.voided_at && <><button className={purchases || expenses ? 'btn secondary' : 'icon-btn'} onClick={() => edit({ type: e.invoice_items ? 'purchase' : 'entry', original: e })} aria-label={editLabel} title={editLabel}><Pencil size={16} />{(purchases || expenses) && t('تعديل', 'Edit')}</button>
-            <button className="icon-btn" onClick={() => edit({ type: 'void', original: e })} aria-label={t('إلغاء الحركة', 'Void transaction')} title={t('إلغاء الحركة', 'Void transaction')}><Ban size={16} /></button></>}
+            <button className="icon-btn" onClick={() => edit({ type: 'void', original: e })} aria-label={e.kind === 'purchase' ? t('إلغاء الفاتورة', 'Void invoice') : t('إلغاء الحركة', 'Void transaction')} title={e.kind === 'purchase' ? t('إلغاء الفاتورة', 'Void invoice') : t('إلغاء الحركة', 'Void transaction')}><Ban size={16} /></button></>}
           {e.revision > 1 && <button className="icon-btn" onClick={() => edit({ type: 'history', original: e })} aria-label={t('سجل التغييرات', 'Change history')} title={t('سجل التغييرات', 'Change history')}><History size={16} /></button>}
         </div></td>}
       </tr>;

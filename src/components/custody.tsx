@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ArrowLeftRight, Ban, Check, Download, Pencil, Trash2, Wallet, X } from 'lucide-react';
-import { currencies, kindLabels, minor, today, type CashTransfer, type Dataset, type Lang } from '@/lib/domain';
+import { currencies, kindLabels, minor, today, validateEntry, type CashTransfer, type Dataset, type Entry, type Lang } from '@/lib/domain';
 import { cashAccount, custodyLedger, custodyPeriod } from '@/lib/custody';
 import { Empty } from './views';
 import { Field, errorMessage, translate, type Editor, type RecordChange } from './forms';
@@ -66,7 +66,9 @@ export function Custody({ data, lang, edit, onReceipt }: {
             <div className="actions">
               <button className="btn secondary" onClick={() => edit({ type: row.entry.invoice_items ? 'purchase' : 'entry', original: row.entry })}><Pencil size={16} />{t('تعديل', 'Edit')}</button>
               {row.entry.receipt_path && <button className="icon-btn" aria-label={t('تنزيل المرفق', 'Download attachment')} onClick={() => onReceipt(row.entry.receipt_path!)}><Download size={16} /></button>}
-              <button className="icon-btn" aria-label={t('إلغاء الحركة', 'Void transaction')} onClick={() => edit({ type: 'void', original: row.entry })}><Ban size={16} /></button>
+              {row.entry.kind === 'purchase'
+                ? <button className="btn secondary" onClick={() => edit({ type: 'invoice-payment', original: row.entry })}>{t('تصحيح خصم العهدة', 'Correct custody deduction')}</button>
+                : <button className="icon-btn" aria-label={t('إلغاء الحركة', 'Void transaction')} onClick={() => edit({ type: 'void', original: row.entry })}><Ban size={16} /></button>}
             </div>
           </div> :
             <div className="custody-transfer">
@@ -86,6 +88,56 @@ export function Custody({ data, lang, edit, onReceipt }: {
       </section>
     </>}
   </>;
+}
+
+export function InvoicePaymentEditor({ original, data, lang, close, save }: {
+  original: Entry; data: Dataset; lang: Lang; close: () => void; save: (change: RecordChange) => Promise<void>;
+}) {
+  const t = translate(lang);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [source, setSource] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const node = dialog.current;
+    node?.showModal();
+    return () => { node?.close(); };
+  }, []);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy || (source !== 'external' && source !== 'unpaid')) return;
+    setBusy(true);
+    setError('');
+    try {
+      const value = validateEntry({ ...original, paid: source === 'unpaid' ? 0 : original.paid,
+        paid_outside_custody: source === 'external' }, data, original);
+      await save({ type: 'entry', value, original, reason: source === 'external'
+        ? t('تصحيح السداد إلى خارج العهدة', 'Corrected payment to outside custody')
+        : t('تصحيح الفاتورة إلى غير مسددة', 'Corrected invoice to unpaid') });
+      close();
+    } catch (problem) {
+      setError(errorMessage(problem));
+      setBusy(false);
+    }
+  }
+  return <dialog ref={dialog} className="editor" aria-labelledby="invoice-payment-title" onCancel={event => { event.preventDefault(); if (!busy) close(); }}>
+    <header className="dialog-head"><h2 id="invoice-payment-title">{t('تصحيح خصم العهدة', 'Correct custody deduction')}</h2>
+      <button className="icon-btn" type="button" onClick={close} disabled={busy} aria-label={t('إغلاق', 'Close')}><X size={19} /></button></header>
+    <form onSubmit={submit}>
+      <fieldset className="purchase-fields" disabled={busy}>
+        <p>{original.party} · <bdi>{original.invoice_number}</bdi></p>
+        <p>{t('الدفعة المسجلة', 'Recorded payment')} <MoneyAmount amount={original.paid} currency={original.currency} lang={lang} /></p>
+        <Field title={t('حالة المبلغ', 'Payment treatment')} wide><select aria-label={t('حالة المبلغ', 'Payment treatment')} value={source} onChange={event => setSource(event.target.value)} required>
+          <option value="" disabled>{t('اختر حالة السداد', 'Select payment treatment')}</option>
+          <option value="external">{t('دُفع من خارج العهدة', 'Paid outside custody')}</option>
+          <option value="unpaid">{t('لم أسدد المبلغ المسجل', 'Recorded payment was not made')}</option>
+        </select></Field>
+      </fieldset>
+      {error && <p className="error-box" role="alert">{error}</p>}
+      <footer className="dialog-actions"><button className="btn secondary" type="button" onClick={close} disabled={busy}>{t('رجوع', 'Back')}</button>
+        <button className="btn primary" disabled={busy || !source}><Check size={16} />{busy ? t('جارٍ الحفظ…', 'Saving…') : t('حفظ التصحيح', 'Save correction')}</button></footer>
+    </form>
+  </dialog>;
 }
 
 export function CashTransferEditor({ original, lang, close, save }: {

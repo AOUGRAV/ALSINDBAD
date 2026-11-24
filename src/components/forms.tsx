@@ -17,7 +17,8 @@ export type RecordEditor = { type: 'entry'; kind?: Kind; container?: Container; 
 export type DebtEditor = { type: 'debt'; original?: Entry } | { type: 'settlement'; debt: Entry; original?: Entry } |
   { type: 'movement'; original?: never; party?: string; direction?: MovementDirection; currency?: Currency; scope?: Entry['scope'] };
 export type PurchaseEditor = { type: 'purchase'; original?: Entry };
-export type Editor = RecordEditor | DebtEditor | PurchaseEditor | { type: 'manifest'; container?: Container } | { type: 'transfer'; original?: CashTransfer };
+export type Editor = RecordEditor | DebtEditor | PurchaseEditor | { type: 'manifest'; container?: Container } | { type: 'transfer'; original?: CashTransfer } |
+  { type: 'invoice-payment'; original: Entry };
 export type RecordChange = { type: 'entry'; value: Entry; receipt?: File; original?: Entry; reason: string } |
   { type: 'account-note'; value: Pick<AccountNote, 'party_key' | 'notes'>; expected: number } |
   { type: 'transfer'; value: CashTransfer; expected: number; remove?: boolean } |
@@ -30,9 +31,10 @@ export function Field({ title, children, wide = false }: { title: string; childr
   return <label className={'field' + (wide ? ' field-wide' : '')}><span>{title}</span>{children}</label>;
 }
 
-export function EditorDialog({ editor, data, lang, close, save, onReceipt, openPurchase }: {
+export function EditorDialog({ editor, data, lang, close, save, onReceipt, openPurchase, correctInvoicePayment }: {
   editor: RecordEditor; data: Dataset; lang: Lang; close: () => void; save: (change: RecordChange) => Promise<void>;
   onReceipt: (path: string) => void; openPurchase: () => void;
+  correctInvoicePayment: (entry: Entry) => void;
 }) {
   const t = translate(lang);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -41,6 +43,7 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
   const original = entry?.original;
   const debt = original?.settles_id ? data.entries.find(row => row.id === original.settles_id) : undefined;
   const debtItem = editor.type === 'void' ? editor.debtItem : undefined;
+  const voidingInvoice = editor.type === 'void' && editor.original.kind === 'purchase';
   const deleteTitle = debtItem === 'debt' ? t('حذف الدين', 'Delete debt') : t('حذف الدفعة', 'Delete payment');
   const [kind, setKind] = useState<Kind>(original?.kind ?? entry?.kind ?? 'expense');
   const [currency, setCurrency] = useState<Currency>(original?.currency ?? debt?.currency ?? 'SAR');
@@ -67,7 +70,7 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
   const expenseOnly = Boolean(entry?.expenseOnly || original?.kind === 'expense');
   const fundingOnly = Boolean(entry?.fundingOnly || original?.kind === 'funding');
   const title = editor.type === 'load' ? t('تحميل أصناف سابقة', 'Load legacy stock') :
-    editor.type === 'void' ? (debtItem ? deleteTitle : t('إلغاء الحركة', 'Void transaction')) : editor.type === 'history' ? t('سجل التغييرات', 'Change history') :
+    editor.type === 'void' ? (debtItem ? deleteTitle : voidingInvoice ? t('إلغاء الفاتورة', 'Void invoice') : t('إلغاء الحركة', 'Void transaction')) : editor.type === 'history' ? t('سجل التغييرات', 'Change history') :
     fundingOnly ? (original ? t('تعديل استلام عهدة', 'Edit funds received') : t('استلام عهدة', 'Receive funds')) :
     expenseOnly ? (original ? t('تعديل المصروف', 'Edit expense') : t('إضافة مصروف', 'Add expense')) :
     original ? t('تصحيح الحركة', 'Correct transaction') : debt ? t('تسجيل دفعة', 'Record settlement') : t('عملية جديدة', 'New transaction');
@@ -120,6 +123,7 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
           description: fundingOnly ? original?.description ?? t('استلام عهدة', 'Funds received') : description,
           category: fundingOnly ? original?.category ?? t('عهدة', 'Custody') : debt?.category ?? (kind === 'purchase' ? product?.category : field(form, 'category')),
           notes: field(form, 'notes'),
+          paid_outside_custody: kind === 'purchase' && field(form, 'payment_source') === 'external',
           amount: minor(amount), paid: kind === 'purchase' ? minor(field(form, 'paid')) : minor(amount),
           rate: currency === 'SAR' ? 1 : Number(rate), method: field(form, 'method'),
           product_id: kind === 'purchase' ? product?.id ?? null : null,
@@ -229,6 +233,10 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
           {kind === 'purchase' && <Field title={t('المبلغ المدفوع', 'Amount paid')}><input name="paid" value={paid} onChange={e => setPaid(e.target.value)} type="number" inputMode="decimal" min="0" max={amount || undefined} step="0.01" required />
             {currency === 'SAR' && paid && <PoundEquivalent amount={minor(paid)} lang={lang} />}
           </Field>}
+          {kind === 'purchase' && <Field title={t('مصدر الدفع', 'Payment source')}><select name="payment_source" aria-label={t('مصدر الدفع', 'Payment source')} defaultValue={original?.paid_outside_custody ? 'external' : 'custody'}>
+            <option value="custody">{t('من العهدة', 'Custody funds')}</option>
+            <option value="external">{t('من خارج العهدة', 'Paid outside custody')}</option>
+          </select></Field>}
           {expenseOnly ? <details className="debt-more field-wide" open={Boolean(entry?.container || original?.container_id) || undefined}
             onInvalidCapture={event => { event.currentTarget.open = true; }}>
             <summary>{t('تفاصيل اختيارية', 'Optional details')}</summary>
@@ -244,6 +252,10 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
         </>}
         {editor.type === 'void' && <>
           <p className="form-note field-wide">{debtItem ? editor.original.party : editor.original.description} · <MoneyAmount amount={editor.original.amount} currency={editor.original.currency} lang={lang} /></p>
+          {voidingInvoice && editor.original.paid > 0 && !editor.original.paid_outside_custody &&
+            <div className="field-wide"><button className="btn secondary" type="button" onClick={() => correctInvoicePayment(editor.original)}>
+              {t('تصحيح خصم العهدة', 'Correct custody deduction')}
+            </button></div>}
           <p className="field-wide muted">{debtItem === 'debt'
             ? t('يُحذف الدين من القائمة والأرصدة، وتبقى نسخة في سجل التغييرات.', 'The debt is removed from the list and balances, and retained in the change history.')
             : debtItem === 'payment'

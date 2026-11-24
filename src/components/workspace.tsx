@@ -13,7 +13,7 @@ import { ShipmentEditor } from './shipment-editor';
 import { Shipments } from './shipments';
 import { Dashboard, Ledger } from './views';
 import { Reports } from './reports';
-import { CashTransferEditor, Custody } from './custody';
+import { CashTransferEditor, Custody, InvoicePaymentEditor } from './custody';
 
 const navigation = [
   { id: 'overview', labels: ['نظرة عامة', 'Overview'], icon: LayoutDashboard },
@@ -251,7 +251,9 @@ export default function Workspace() {
       </main>
     </div>
     {notice && <div className="toast no-print" role="status">{notice}</div>}
-    {editor && ready && (editor.type === 'transfer'
+    {editor && ready && (editor.type === 'invoice-payment'
+      ? <InvoicePaymentEditor original={editor.original} data={data} lang={lang} close={() => setEditor(null)} save={record} />
+      : editor.type === 'transfer'
       ? <CashTransferEditor original={editor.original} lang={lang} close={() => setEditor(null)} save={record} />
       : editor.type === 'manifest'
       ? <ShipmentEditor container={editor.container} data={data} lang={lang} close={() => setEditor(null)} save={record} />
@@ -259,6 +261,7 @@ export default function Workspace() {
       ? <PurchaseEditorDialog editor={editor} data={data} lang={lang} close={() => setEditor(null)} save={record} />
       : editor.type === 'debt' || editor.type === 'settlement' || editor.type === 'movement'
       ? <DebtEditorDialog editor={editor} data={data} lang={lang} close={() => setEditor(null)} save={record} />
-      : <EditorDialog editor={editor} data={data} lang={lang} close={() => setEditor(null)} save={record} onReceipt={receipt} openPurchase={() => setEditor({ type: 'purchase' })} />)}
+      : <EditorDialog editor={editor} data={data} lang={lang} close={() => setEditor(null)} save={record} onReceipt={receipt} openPurchase={() => setEditor({ type: 'purchase' })}
+        correctInvoicePayment={original => setEditor({ type: 'invoice-payment', original })} />)}
   </div>;
 }

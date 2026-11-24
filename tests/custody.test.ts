@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { custodyLedger, custodyPeriod } from '../src/lib/custody';
-import { entrySchema, type CashTransfer, type Entry } from '../src/lib/domain';
+import { debtPrincipal, entrySchema, summary, type CashTransfer, type Entry } from '../src/lib/domain';
 import { sampleData } from './fixtures';
 
 const template = sampleData().entries[0];
@@ -47,4 +47,19 @@ test('optional notes accept existing records and enforce the length limit', () =
   assert.equal(entrySchema.parse({ ...template, notes: '  فاتورة تخص الشحنة الثانية\nملاحظة إضافية  ' }).notes,
     'فاتورة تخص الشحنة الثانية\nملاحظة إضافية');
   assert.equal(entrySchema.safeParse({ ...template, notes: 'x'.repeat(2001) }).success, false);
+});
+
+test('correcting an invoice payment restores custody and keeps the purchase and supplier balance', () => {
+  const funding = entry('1', 100000);
+  const invoice = entry('2', 25000, { kind: 'purchase' });
+  assert.equal(custodyPeriod(custodyLedger([funding, invoice])).remaining, 75000);
+  const external = { ...invoice, paid_outside_custody: true };
+  assert.equal(custodyPeriod(custodyLedger([funding, external])).remaining, 100000);
+  assert.equal(summary([funding, external]).cash, 100000);
+  assert.equal(summary([funding, external]).purchases, 25000);
+  assert.equal(debtPrincipal(external), 0);
+  const unpaid = { ...invoice, paid: 0 };
+  assert.equal(custodyPeriod(custodyLedger([funding, unpaid])).remaining, 100000);
+  assert.equal(debtPrincipal(unpaid), 25000);
+  assert.equal(entrySchema.safeParse({ ...template, paid_outside_custody: true }).success, false);
 });

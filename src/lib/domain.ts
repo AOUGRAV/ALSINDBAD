@@ -16,6 +16,7 @@ export const entrySchema = z.object({
   id: z.uuid(), date: z.iso.date(), kind: z.enum(kinds), party: z.string().trim().max(120),
   description: z.string().trim().min(1).max(500), category: z.string().trim().min(1).max(80),
   notes: z.string().trim().max(2000).nullish(),
+  paid_outside_custody: z.boolean().nullish(),
   scope: z.enum(['business', 'personal']), currency: z.enum(currencies),
   amount: z.number().int().positive().max(100_000_000_000),
   paid: z.number().int().nonnegative(), rate: z.number().positive().max(10000)
@@ -30,6 +31,7 @@ export const entrySchema = z.object({
 }).superRefine((v, ctx) => {
   const issue = (message: string) => ctx.addIssue({ code: 'custom', message });
   if (v.kind !== 'expense' && !v.party) issue('اسم الجهة مطلوب / Party is required');
+  if (v.paid_outside_custody && v.kind !== 'purchase') issue('مصدر سداد الفاتورة مخصص للمشتريات / External invoice payment applies to purchases');
   if (v.paid > v.amount) issue('المدفوع أكبر من الإجمالي / Paid exceeds total');
   if (v.kind !== 'purchase' && v.paid !== v.amount) issue('يلزم دفع كامل المبلغ / Full payment required');
   if (v.currency === 'SAR' && v.rate !== 1) issue('سعر الريال يجب أن يكون 1 / SAR rate must be 1');
@@ -83,7 +85,7 @@ export const money = (amount: number, currency: Currency = 'SAR', lang: Lang = '
   new Intl.NumberFormat(lang === 'ar' ? 'ar-SA' : 'en-GB', { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount / 100);
 export const cashSign = (kind: Kind) => ['funding', 'borrow', 'collect'].includes(kind) ? 1 : -1;
 export const activeEntries = (entries: Entry[]) => entries.filter(entry => !entry.voided_at);
-export const cashAmount = (entry: Entry, inSar = false) => entry.opening || entry.voided_at ? 0 :
+export const cashAmount = (entry: Entry, inSar = false) => entry.opening || entry.voided_at || entry.paid_outside_custody ? 0 :
   cashSign(entry.kind) * (inSar ? baseAmount(entry, entry.paid) : entry.paid);
 export const debtPrincipal = (e: Entry) => e.kind === 'purchase' ? e.amount - e.paid : ['borrow', 'lend'].includes(e.kind) ? e.amount : 0;
 export const debtBalance = (entry: Entry, entries: Entry[]) => entry.voided_at ? 0 : debtPrincipal(entry) -
@@ -123,7 +125,7 @@ export function prepareDebtEntry(draft: DebtDraft, data: Dataset, original?: Ent
 }
 
 type PurchaseInvoiceDraft = Pick<Entry, 'id' | 'created_at' | 'date' | 'party' | 'description' | 'category' | 'currency' | 'rate' | 'method'> &
-  { invoice_number: string; invoice_items: InvoiceItem[]; paid?: number; notes?: string };
+  { invoice_number: string; invoice_items: InvoiceItem[]; paid?: number; notes?: string; paid_outside_custody?: boolean };
 
 export function preparePurchaseInvoice(draft: PurchaseInvoiceDraft, data: Dataset, original?: Entry) {
   const totals = invoiceTotals(draft.invoice_items);

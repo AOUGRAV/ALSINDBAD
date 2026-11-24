@@ -28,7 +28,9 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
   const [dateEdited, setDateEdited] = useState(false);
   const [currency, setCurrency] = useState<Currency>(original?.currency ?? 'SAR');
   const [currencyEdited, setCurrencyEdited] = useState(false);
-  const [partial, setPartial] = useState(Boolean(original && original.paid < original.amount));
+  const [paymentStatus, setPaymentStatus] = useState<'full' | 'partial' | 'unpaid'>(
+    original?.paid === 0 ? 'unpaid' : original && original.paid < original.amount ? 'partial' : 'full');
+  const [paidOutside, setPaidOutside] = useState(original?.paid_outside_custody ?? false);
   const [paid, setPaid] = useState(String(original ? original.paid / 100 : 0));
   const [attachment, setAttachment] = useState<File | null>(null);
   const [reading, setReading] = useState(false);
@@ -106,7 +108,8 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
         category: original?.category ?? t('مشتريات', 'Purchases'),
         description: t('فاتورة شراء ', 'Purchase invoice ') + number,
         method: value('method') as Entry['method'], rate: currency === 'SAR' ? 1 : Number(value('rate')),
-        paid: partial ? minor(value('paid')) : undefined,
+        paid: paymentStatus === 'unpaid' ? 0 : paymentStatus === 'partial' ? minor(value('paid')) : undefined,
+        paid_outside_custody: paymentStatus !== 'unpaid' && paidOutside,
       }, data, original);
       if (attachment) receiptExtension(attachment);
       await save({ type: 'entry', value: entry, original, receipt: attachment ?? undefined,
@@ -150,6 +153,19 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
           <Field title={t('اشتريت من', 'Purchased from')} wide><input value={party} onChange={event => setParty(event.target.value)} placeholder={t('شركة، محل أو شخص', 'Company, shop, or person')} maxLength={120} required /></Field>
           <Field title={t('رقم الفاتورة', 'Invoice number')}><input value={invoiceNumber} onChange={event => setInvoiceNumber(event.target.value)} maxLength={80} required /></Field>
           <Field title={t('تاريخ الفاتورة', 'Invoice date')}><input type="date" value={date} onChange={event => { setDate(event.target.value); setDateEdited(true); }} required /></Field>
+          <Field title={t('حالة السداد', 'Payment status')}><select aria-label={t('حالة السداد', 'Payment status')} value={paymentStatus} onChange={event => setPaymentStatus(event.target.value as typeof paymentStatus)}>
+            <option value="full">{t('مدفوعة بالكامل', 'Paid in full')}</option>
+            <option value="partial">{t('مدفوعة جزئيًا', 'Partially paid')}</option>
+            <option value="unpaid">{t('لم تُسدد بعد', 'Unpaid')}</option>
+          </select></Field>
+          {paymentStatus !== 'unpaid' && <Field title={t('مصدر الدفع', 'Payment source')}><select aria-label={t('مصدر الدفع', 'Payment source')} value={paidOutside ? 'external' : 'custody'} onChange={event => setPaidOutside(event.target.value === 'external')}>
+            <option value="custody">{t('من العهدة', 'Custody funds')}</option>
+            <option value="external">{t('من خارج العهدة', 'Paid outside custody')}</option>
+          </select></Field>}
+          {paymentStatus === 'partial' && <Field title={t('المبلغ المدفوع', 'Amount paid')} wide><input name="paid" type="number" inputMode="decimal" min="0"
+            max={totals ? totals.total / 100 : undefined} step="0.01" value={paid} onChange={event => setPaid(event.target.value)} required />
+            {currency === 'SAR' && paid && <PoundEquivalent amount={minor(paid)} lang={lang} />}
+          </Field>}
           <Field title={t('طريقة الدفع', 'Payment method')}><select name="method" defaultValue={original?.method ?? 'cash'}>
             <option value="cash">{t('نقدي', 'Cash')}</option><option value="bank">{t('تحويل بنكي', 'Bank transfer')}</option><option value="card">{t('بطاقة', 'Card')}</option>
           </select></Field>
@@ -202,16 +218,6 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
         <Field title={t('ملاحظات (اختياري)', 'Notes (optional)')} wide>
           <textarea name="notes" aria-label={t('ملاحظات (اختياري)', 'Notes (optional)')} defaultValue={original?.notes ?? ''} maxLength={2000} rows={3} />
         </Field>
-        <details className="debt-more" open={partial || undefined}>
-          <summary>{t('دفعة جزئية', 'Partial payment')}</summary>
-          <div className="form-grid">
-            <label className="field-wide check-field"><input type="checkbox" checked={partial} onChange={event => setPartial(event.target.checked)} />{t('دفعت جزءًا من الفاتورة أو لم أدفع بعد', 'I paid part of the invoice or have not paid yet')}</label>
-            {partial && <Field title={t('المبلغ المدفوع', 'Amount paid')} wide><input name="paid" type="number" inputMode="decimal" min="0"
-              max={totals ? totals.total / 100 : undefined} step="0.01" value={paid} onChange={event => setPaid(event.target.value)} required />
-              {currency === 'SAR' && paid && <PoundEquivalent amount={minor(paid)} lang={lang} />}
-            </Field>}
-          </div>
-        </details>
       </fieldset>
       {error && <p className="error-box" role="alert">{error}</p>}
       <footer className="dialog-actions">
