@@ -44,7 +44,7 @@ export const entrySchema = z.object({
     } else if (!v.product_id || v.quantity < 1) issue('اختر الصنف والكمية / Product and quantity required');
   } else if (v.product_id || v.quantity || v.invoice_number || v.invoice_items) issue('بنود الفاتورة خاصة بالمشتريات / Invoice items are only for purchases');
   if (['collect', 'repay'].includes(v.kind) !== Boolean(v.settles_id)) issue('اربط السداد بالدين / Link settlement to a debt');
-  if (v.container_id && (v.kind !== 'expense' || v.scope !== 'business')) issue('اربط الحاوية بمصروف تشغيلي / Only business expenses can link to containers');
+  if (v.container_id && v.kind !== 'expense') issue('اربط الحاوية بمصروف / Only expenses can link to containers');
   if (v.opening && !['borrow', 'lend'].includes(v.kind)) issue('الرصيد الافتتاحي مخصص للديون القائمة / Opening balances apply to existing debts');
 });
 export type Entry = z.infer<typeof entrySchema>;
@@ -58,6 +58,7 @@ export type Container = {
 };
 export type ContainerDraft = Pick<Container, 'id' | 'name' | 'destination' | 'booking' | 'status'>;
 export type InvoiceLoadDraft = { entry_id: string; item_index: number; quantity: number };
+export type ContainerExpenses = { selected: { id: string; revision: number }[]; previous: { id: string; revision: number }[] };
 export type InvoiceLoad = InvoiceLoadDraft & { container_id: string; cost_sar: number };
 export type LoadDraft = { id: string; container_id: string; product_id: string; quantity: number; created_at: string };
 export type Load = LoadDraft & { cost_sar: number };

@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { type AccountNote, type CashTransfer, type Dataset, type Entry, type Container, type ContainerDraft, type InvoiceLoadDraft, type LoadDraft } from './domain';
+import { type AccountNote, type CashTransfer, type Dataset, type Entry, type Container, type ContainerDraft, type ContainerExpenses, type InvoiceLoadDraft, type LoadDraft } from './domain';
 import { receiptExtension } from './receipt';
 import { type DebtMovement, type MovementAllocation } from './debt-accounts';
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -52,8 +52,8 @@ export async function reviseEntry(original: Entry, reason: string, replacement: 
   });
   if (error) throw error;
 }
-export async function saveContainerManifest(container: ContainerDraft, lines: InvoiceLoadDraft[], expected?: number) {
-  const { error } = await supabase().rpc('save_container_manifest', { payload: container, lines, expected: expected ?? null });
+export async function saveContainerManifest(container: ContainerDraft, lines: InvoiceLoadDraft[], expected?: number, expenses?: ContainerExpenses) {
+  const { error } = await supabase().rpc(expenses ? 'save_container_with_expenses' : 'save_container_manifest', { payload: container, lines, expected: expected ?? null, ...(expenses ? { expenses } : {}) });
   if (error) throw error;
 }
 export async function saveLoad(load: LoadDraft) {

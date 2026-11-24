@@ -2,12 +2,13 @@
 
 import { useState } from 'react';
 import { ArrowLeft, Box, Download, Pencil, Plus, Ship } from 'lucide-react';
-import { containerStatusLabels, inventory, type Container, type Dataset, type InvoiceLoad, type Lang } from '@/lib/domain';
+import { baseAmount, containerStatusLabels, inventory, type Container, type Dataset, type InvoiceLoad, type Lang } from '@/lib/domain';
+import { containerReport } from '@/lib/detail-reports';
 import { MoneyAmount } from './money-amount';
 import { containerCost } from '@/lib/manifest';
 import { containerCargo } from '@/lib/container-cargo';
 import { CargoModel } from './cargo-model';
-import { translate, type Editor } from './forms';
+import { errorMessage, translate, type Editor } from './forms';
 import { Empty } from './views';
 
 function ContainerTotal({ total, lang }: { total: number; lang: Lang }) {
@@ -25,9 +26,22 @@ export function Shipments({ data, lang, selected, select, edit, advance, updatin
 }) {
   const t = translate(lang);
   const [modelId, setModelId] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
   const status = (value: Container['status']) => t(containerStatusLabels[value][0], containerStatusLabels[value][1]);
   const editLabel = t('تعديل الحاوية', 'Edit container');
   const container = data.containers.find(row => row.id === selected);
+  async function exportFile(format: 'excel' | 'pdf') {
+    if (!container || exporting) return;
+    setExporting(true);
+    setExportError('');
+    try {
+      const report = containerReport(data, container, lang);
+      const exporter = await import('@/lib/download-report');
+      await (format === 'excel' ? exporter.downloadReportExcel(report) : exporter.downloadReportPdf(report));
+    } catch (problem) { setExportError(errorMessage(problem)); }
+    finally { setExporting(false); }
+  }
   if (!data.containers.length) return <section className="panel"><Empty>{t('لا توجد حاويات.', 'No containers.')}</Empty></section>;
   if (!container) return <div className="cards">{data.containers.map(row => {
     const { total } = containerCost(data, row);
@@ -65,12 +79,18 @@ export function Shipments({ data, lang, selected, select, edit, advance, updatin
       <button className="btn primary" onClick={() => edit({ type: 'manifest', container })}><Pencil size={15} />{editLabel}</button>
       {canLoadLegacy && <button className="btn secondary" onClick={() => edit({ type: 'load', container })}>{t('تحميل أصناف سابقة', 'Load legacy stock')}</button>}
       <button className="btn secondary" onClick={() => edit({ type: 'entry', kind: 'expense', expenseOnly: true, container })}>
-        <Plus size={15} />{t('إضافة تكلفة', 'Add cost')}
+        <Plus size={15} />{t('إضافة مصروف', 'Add expense')}
       </button>
       {container.status !== 'arrived' && <button className="btn secondary" disabled={Boolean(updating) || (preparing && !loaded)} onClick={() => advance(container)}>
         {updating === container.id ? t('جارٍ التحديث…', 'Updating…') : preparing ? t('تسجيل الشحن', 'Mark shipped') : t('تسجيل الوصول', 'Mark arrived')}
       </button>}
     </div>
+    <div className="actions shipment-exports" aria-label={t('تصدير الحاوية', 'Export container')}>
+      <button className="btn secondary" disabled={exporting} onClick={() => exportFile('excel')}><Download size={16} />{t('تصدير Excel', 'Export Excel')}</button>
+      <button className="btn secondary" disabled={exporting} onClick={() => exportFile('pdf')}><Download size={16} />{t('تصدير PDF', 'Export PDF')}</button>
+      {exporting && <span role="status">{t('جارٍ التصدير…', 'Exporting…')}</span>}
+    </div>
+    {exportError && <p className="error-box" role="alert">{exportError}</p>}
     <div className="manifest-picker">
       <div className="manifest-view-switch">
         <h3>{t('الحمولة', 'Manifest')}</h3>
@@ -101,6 +121,19 @@ export function Shipments({ data, lang, selected, select, edit, advance, updatin
       </section>}
       </>}
     </div>
+    <section className="manifest-picker" aria-labelledby="shipment-expenses-heading">
+      <div className="manifest-view-switch"><h3 id="shipment-expenses-heading">{t('مصاريف الحاوية', 'Container expenses')}</h3>
+        <button className="btn secondary" onClick={() => edit({ type: 'manifest', container })}><Plus size={15} />{t('اختيار مصروف مسجل', 'Select an existing expense')}</button>
+      </div>
+      {!cost.expenses.length && <Empty>{t('لا توجد مصاريف مرتبطة.', 'No linked expenses.')}</Empty>}
+      {cost.expenses.map(expense => <article className="purchase-item" key={expense.id}>
+        <div className="manifest-invoice-head"><div><strong>{expense.category} · {expense.description}</strong><small>{expense.party} · <bdi>{expense.date}</bdi></small></div>
+          <button className="icon-btn" aria-label={t('تعديل المصروف', 'Edit expense') + ' · ' + expense.description} onClick={() => edit({ type: 'entry', kind: 'expense', expenseOnly: true, original: expense })}><Pencil size={16} /></button>
+        </div>
+        <MoneyAmount amount={baseAmount(expense)} lang={lang} />
+        {expense.notes && <p className="record-note">{expense.notes}</p>}
+      </article>)}
+    </section>
     <div className="manifest-picker">
       <div className="split-line"><span>{t('تكلفة المنتجات عند التحميل', 'Product cost at loading')}</span><MoneyAmount amount={cost.goods} lang={lang} /></div>
       <div className="split-line"><span>{t('مصاريف الحاوية', 'Container expenses')}</span><MoneyAmount amount={cost.shipping} lang={lang} /></div>

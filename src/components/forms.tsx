@@ -24,7 +24,7 @@ export type RecordChange = { type: 'entry'; value: Entry; receipt?: File; origin
   { type: 'transfer'; value: CashTransfer; expected: number; remove?: boolean } |
   { type: 'custody-exclusion'; original: Entry; excluded: boolean } |
   { type: 'movement'; value: DebtMovement; allocations: MovementAllocation[]; receipt?: File } |
-  { type: 'manifest'; value: ContainerDraft; lines: InvoiceLoadDraft[]; expected?: number } | { type: 'load'; value: LoadDraft } |
+  { type: 'manifest'; value: ContainerDraft; lines: InvoiceLoadDraft[]; expected?: number; expenses: import('@/lib/domain').ContainerExpenses } | { type: 'load'; value: LoadDraft } |
   { type: 'void'; original: Entry; reason: string };
 type Scan = Awaited<ReturnType<typeof import('@/lib/scan-invoice').scanInvoice>>;
 
@@ -130,7 +130,7 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
           rate: currency === 'SAR' ? 1 : Number(rate), method: field(form, 'method'),
           product_id: kind === 'purchase' ? product?.id ?? null : null,
           quantity: kind === 'purchase' ? Number(field(form, 'quantity')) : 0, settles_id: debt?.id ?? null,
-          container_id: kind === 'expense' && scope === 'business' ? field(form, 'container') || null : null,
+          container_id: kind === 'expense' ? field(form, 'container') || null : null,
           receipt_path: original?.receipt_path ?? null, opening: form.has('opening'),
         }, data, original);
         const reason = field(form, 'reason');
@@ -164,7 +164,7 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
     <Field title={t('العملة', 'Currency')}><select value={currency} onChange={e => setCurrency(e.target.value as Currency)} disabled={Boolean(debt)}>{currencies.map(c => <option key={c}>{c}</option>)}</select></Field>
     {currency !== 'SAR' && <Field title={t('سعر صرف 1', 'SAR per 1') + ' ' + currency + (lang === 'ar' ? ' بالريال' : '')}><input type="number" inputMode="decimal" min="0.000001" max="10000" step="0.000001" value={rate} onChange={e => setRate(e.target.value)} placeholder={debt ? String(debt.rate) : undefined} required /></Field>}
     <Field title={fundingOnly ? t('استلمته في', 'Received into') : t('طريقة الدفع', 'Payment method')}><select name="method" defaultValue={original?.method ?? (expenseOnly || fundingOnly ? 'cash' : 'bank')}><option value="bank">{fundingOnly ? t('البنك', 'Bank') : t('تحويل بنكي', 'Bank transfer')}</option><option value="cash">{t('نقدًا', 'Cash')}</option>{(!fundingOnly || original?.method === 'card') && <option value="card">{t('بطاقة', 'Card')}</option>}</select></Field>
-    {kind === 'expense' && scope === 'business' && data.containers.length > 0 && <Field title={t('ربط بحاوية (اختياري)', 'Link to container (optional)')}><select name="container" defaultValue={original?.container_id ?? entry?.container?.id ?? ''}><option value="">{t('بدون حاوية', 'No container')}</option>{data.containers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>}
+    {kind === 'expense' && data.containers.length > 0 && <Field title={t('ربط بحاوية (اختياري)', 'Link to container (optional)')}><select name="container" defaultValue={original?.container_id ?? entry?.container?.id ?? ''}><option value="">{t('بدون حاوية', 'No container')}</option>{data.containers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>}
     {currency !== 'SAR' && Number(amount) > 0 && Number(amount) <= 1000000000 && Number(rate) > 0 && Number(rate) <= 10000 && <p className="form-note field-wide">{t('ما يعادله بالريال', 'SAR equivalent')}: <MoneyAmount amount={toSar(minor(amount), Number(rate))} lang={lang} /></p>}
     <Field title={original?.receipt_path ? t('استبدال الفاتورة المرفقة (اختياري)', 'Replace attached receipt (optional)') : t('فاتورة أو إيصال (اختياري)', 'Invoice or receipt (optional)')} wide>
       <div className="file-field"><Paperclip size={16} /><input name="receipt" type="file" accept={receiptAccept} disabled={unavailable} onChange={event => {

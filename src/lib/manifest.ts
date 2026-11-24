@@ -5,9 +5,11 @@ export function containerCost(data: Dataset, container: Container) {
   const lines = data.loads.filter(load => load.container_id === container.id);
   const invoiceLines = data.invoice_loads.filter(load => load.container_id === container.id);
   const goods = [...lines, ...invoiceLines].reduce((sum, load) => sum + load.cost_sar, 0);
-  const shipping = data.entries.filter(e => !e.voided_at && e.container_id === container.id).reduce((sum, e) => sum + baseAmount(e), 0);
+  const expenses = data.entries.filter(e => e.kind === 'expense' && !e.voided_at && e.container_id === container.id)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+  const shipping = expenses.reduce((sum, e) => sum + baseAmount(e), 0);
   const total = goods + shipping;
-  return { lines, invoiceLines, goods, shipping, total, gbp: poundsFromRiyals(total) };
+  return { lines, invoiceLines, expenses, goods, shipping, total, gbp: poundsFromRiyals(total) };
 }
 
 export function availableInvoiceItems(data: Dataset, containerId?: string) {

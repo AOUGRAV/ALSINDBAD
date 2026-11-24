@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { ChartNoAxesCombined, CircleDollarSign, ClipboardList, Globe2, LayoutDashboard, LockKeyhole, LogOut, MapPin, Menu, Plus, ReceiptText, RefreshCw, Ship, ShoppingBag, Wallet, X } from 'lucide-react';
+import { ChartNoAxesCombined, CircleDollarSign, ClipboardList, Globe2, LayoutDashboard, LockKeyhole, LogOut, Menu, Plus, ReceiptText, RefreshCw, Ship, ShoppingBag, Wallet, X } from 'lucide-react';
 import { activeEntries, emptyData, type Container, type Dataset, type Lang } from '@/lib/domain';
 import { debtAccounts, debtAccountKey } from '@/lib/debt-accounts';
 import { advanceContainer, configured, downloadReceipt, loadData, reviseEntry, saveAccountNote, saveCashTransfer, saveContainerManifest, saveDebtMovement, saveEntry, saveLoad, setCustodyExclusion, supabase, uploadReceipt } from '@/lib/storage';
@@ -151,7 +151,7 @@ export default function Workspace() {
     } else if (change.type === 'void') {
       await reviseEntry(change.original, change.reason, null);
     } else if (change.type === 'manifest') {
-      await saveContainerManifest(change.value, change.lines, change.expected);
+      await saveContainerManifest(change.value, change.lines, change.expected, change.expenses);
       setContainerId(change.value.id);
     } else {
       await saveLoad(change.value);
@@ -222,7 +222,6 @@ export default function Workspace() {
     {menu && <button className="sidebar-overlay no-print" aria-label={t('إغلاق القائمة', 'Close navigation')} onClick={() => setMenu(false)} />}
     <aside id="workspace-sidebar" className={'sidebar no-print' + (menu ? ' sidebar-open' : '')}>
       <Brand />
-      <div className="branch"><span className="branch-icon"><MapPin size={17} /></span><strong>{t('فرع جدة', 'Jeddah branch')}</strong></div>
       <nav aria-label={t('القائمة الرئيسية', 'Main navigation')}>{navigation.map(({ id, labels, icon: Icon }) => <button key={id} className={id === section ? 'nav-active' : ''} aria-current={id === section ? 'page' : undefined} onClick={() => navigate(id)}>
         <Icon size={18} strokeWidth={1.8} /><span>{t(labels[0], labels[1])}</span>
       </button>)}</nav>

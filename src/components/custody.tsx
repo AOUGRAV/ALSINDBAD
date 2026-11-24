@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ArrowLeftRight, Check, Download, Pencil, Trash2, Wallet, X } from 'lucide-react';
 import { currencies, kindLabels, minor, today, validateEntry, type CashTransfer, type Dataset, type Entry, type Lang } from '@/lib/domain';
 import { cashAccount, custodyLedger, custodyPeriod } from '@/lib/custody';
+import { custodyReport } from '@/lib/detail-reports';
 import { Empty } from './views';
 import { Field, errorMessage, translate, type Editor, type RecordChange } from './forms';
 import { MoneyAmount, PoundEquivalent } from './money-amount';
@@ -15,11 +16,23 @@ export function Custody({ data, lang, edit, onReceipt }: {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [filter, setFilter] = useState<'all' | 'funding' | 'outgoing' | 'transfer' | 'excluded'>('all');
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
   const ledger = custodyLedger(data.entries, data.cash_transfers);
   const period = custodyPeriod(ledger, from, to);
   const rows = [...period.rows].reverse().filter(row => filter === 'all' || (filter === 'transfer' ? row.transfer :
     filter === 'funding' ? row.entry?.kind === 'funding' : row.amount < 0));
   const validDates = !from || !to || from <= to;
+  async function exportExcel() {
+    if (exporting || !validDates) return;
+    setExporting(true);
+    setExportError('');
+    try {
+      const { downloadReportExcel } = await import('@/lib/download-report');
+      await downloadReportExcel(custodyReport(data, from, to, lang));
+    } catch (problem) { setExportError(errorMessage(problem)); }
+    finally { setExporting(false); }
+  }
   const excludedEntries = data.entries.filter(entry => entry.custody_excluded && !entry.voided_at &&
     (!from || entry.date >= from) && (!to || entry.date <= to)).sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at));
   const metrics = [
@@ -30,7 +43,9 @@ export function Custody({ data, lang, edit, onReceipt }: {
   return <>
     <div className="actions custody-actions">
       <button className="btn secondary" onClick={() => edit({ type: 'transfer' })}><ArrowLeftRight size={17} />{t('تحويل بين الكاش والبنك', 'Transfer between cash and bank')}</button>
+      <button className="btn secondary" disabled={exporting || !validDates} onClick={exportExcel}><Download size={17} />{exporting ? t('جارٍ التصدير…', 'Exporting…') : t('تصدير Excel', 'Export Excel')}</button>
     </div>
+    {exportError && <p className="error-box" role="alert">{exportError}</p>}
     <section className="panel">
       <div className="filters custody-filters">
         <Field title={t('من تاريخ', 'From date')}><input type="date" value={from} max={to || undefined} onChange={event => setFrom(event.target.value)} /></Field>

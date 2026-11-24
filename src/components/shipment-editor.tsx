@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Check, Trash2, X } from 'lucide-react';
-import { containerStatusLabels, type Container, type Dataset, type Lang } from '@/lib/domain';
+import { baseAmount, containerStatusLabels, type Container, type Dataset, type Lang } from '@/lib/domain';
+import { MoneyAmount } from './money-amount';
 import { availableInvoiceItems } from '@/lib/manifest';
 import { errorMessage, Field, translate, type RecordChange } from './forms';
 
@@ -17,6 +18,9 @@ export function ShipmentEditor({ container, data, lang, close, save }: {
     .filter(({ items }) => items.some(item => item.assigned > 0))
     .map(({ entry, items }) => [entry.id, Object.fromEntries(items.map(item => [item.index, String(item.assigned)]))])));
   const [busy, setBusy] = useState(false);
+  const expenses = data.entries.filter(row => row.kind === 'expense' && !row.voided_at && (!row.container_id || row.container_id === container?.id));
+  const [selectedExpenses, setSelectedExpenses] = useState(() => expenses.filter(row => container && row.container_id === container.id).map(row => row.id));
+  const expenseSnapshot = useRef(expenses.filter(row => container && row.container_id === container.id).map(({ id, revision }) => ({ id, revision })));
   const [error, setError] = useState('');
   const dialog = useRef<HTMLDialogElement>(null);
   const identity = useRef(container?.id);
@@ -75,7 +79,10 @@ export function ShipmentEditor({ container, data, lang, close, save }: {
       }
       identity.current ??= crypto.randomUUID();
       await save({ type: 'manifest', value: { id: identity.current, name, destination, booking: field('booking'), status },
-        lines, expected: container?.manifest_revision });
+        lines, expected: container?.manifest_revision, expenses: {
+          selected: expenses.filter(row => selectedExpenses.includes(row.id)).map(({ id, revision }) => ({ id, revision })),
+          previous: expenseSnapshot.current,
+        } });
       close();
     } catch (problem) {
       setError(errorMessage(problem));
@@ -124,6 +131,19 @@ export function ShipmentEditor({ container, data, lang, close, save }: {
             </div>)}
           </section>)}
         </div>
+        <section className="manifest-picker" aria-labelledby="container-expenses-title">
+          <h3 id="container-expenses-title">{t('مصاريف الحاوية', 'Container expenses')}</h3>
+          <Field title={t('إضافة مصروف مسجل', 'Add an existing expense')}>
+            <select aria-label={t('إضافة مصروف مسجل', 'Add an existing expense')} value="" onChange={event => setSelectedExpenses(previous => [...previous, event.target.value])}>
+              <option value="">{t('اختر مصروفًا', 'Select an expense')}</option>
+              {expenses.filter(row => !selectedExpenses.includes(row.id)).map(row => <option key={row.id} value={row.id}>{row.category} · {row.description} · {row.date} · {(baseAmount(row) / 100).toLocaleString()} SAR</option>)}
+            </select>
+          </Field>
+          {expenses.filter(row => selectedExpenses.includes(row.id)).map(row => <div className="purchase-item manifest-invoice-head" key={row.id}>
+            <div><strong>{row.category} · {row.description}</strong><small>{row.party} · <bdi>{row.date}</bdi></small><MoneyAmount amount={baseAmount(row)} lang={lang} /></div>
+            <button type="button" className="icon-btn" aria-label={t('فك ارتباط المصروف', 'Unlink expense') + ' · ' + row.description} onClick={() => setSelectedExpenses(previous => previous.filter(id => id !== row.id))}><X size={16} /></button>
+          </div>)}
+        </section>
       </fieldset>
       {error && <p className="error-box" role="alert">{error}</p>}
       <footer className="dialog-actions">
