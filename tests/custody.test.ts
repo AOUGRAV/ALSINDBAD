@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { custodyLedger, custodyPeriod } from '../src/lib/custody';
 import { debtPrincipal, entrySchema, summary, type CashTransfer, type Entry } from '../src/lib/domain';
 import { sampleData } from './fixtures';
+import { debtAccounts } from '../src/lib/debt-accounts';
 
 const template = sampleData().entries[0];
 const entry = (id: string, amount: number, changes: Partial<Entry> = {}): Entry => ({
@@ -62,4 +63,18 @@ test('correcting an invoice payment restores custody and keeps the purchase and 
   assert.equal(custodyPeriod(custodyLedger([funding, unpaid])).remaining, 100000);
   assert.equal(debtPrincipal(unpaid), 25000);
   assert.equal(entrySchema.safeParse({ ...template, paid_outside_custody: true }).success, false);
+});
+
+test('excluding debt movements from custody retains their accounts and balances', () => {
+  const entries = [entry('1', 100000, { kind: 'borrow', party: 'Lender' }),
+    entry('2', 25000, { kind: 'lend', party: 'Borrower' })];
+  const excluded = entries.map(item => ({ ...item, custody_excluded: true }));
+  assert.deepEqual(debtAccounts(excluded), debtAccounts(entries).map(account => ({
+    ...account, entries: account.entries.map(item => ({ ...item, custody_excluded: true })),
+    open: account.open.map(item => ({ ...item, entry: { ...item.entry, custody_excluded: true } })),
+  })));
+  assert.equal(summary(excluded).receivable, summary(entries).receivable);
+  assert.equal(summary(excluded).payable, summary(entries).payable);
+  assert.equal(custodyLedger(excluded).length, 0);
+  assert.equal(custodyPeriod(custodyLedger(entries)).remaining, 75000);
 });

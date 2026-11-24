@@ -18,10 +18,11 @@ export type DebtEditor = { type: 'debt'; original?: Entry } | { type: 'settlemen
   { type: 'movement'; original?: never; party?: string; direction?: MovementDirection; currency?: Currency; scope?: Entry['scope'] };
 export type PurchaseEditor = { type: 'purchase'; original?: Entry };
 export type Editor = RecordEditor | DebtEditor | PurchaseEditor | { type: 'manifest'; container?: Container } | { type: 'transfer'; original?: CashTransfer } |
-  { type: 'invoice-payment'; original: Entry };
+  { type: 'invoice-payment'; original: Entry } | { type: 'custody-exclusion'; original: Entry; excluded: boolean };
 export type RecordChange = { type: 'entry'; value: Entry; receipt?: File; original?: Entry; reason: string } |
   { type: 'account-note'; value: Pick<AccountNote, 'party_key' | 'notes'>; expected: number } |
   { type: 'transfer'; value: CashTransfer; expected: number; remove?: boolean } |
+  { type: 'custody-exclusion'; original: Entry; excluded: boolean } |
   { type: 'movement'; value: DebtMovement; allocations: MovementAllocation[]; receipt?: File } |
   { type: 'manifest'; value: ContainerDraft; lines: InvoiceLoadDraft[]; expected?: number } | { type: 'load'; value: LoadDraft } |
   { type: 'void'; original: Entry; reason: string };
@@ -124,6 +125,7 @@ export function EditorDialog({ editor, data, lang, close, save, onReceipt, openP
           category: fundingOnly ? original?.category ?? t('عهدة', 'Custody') : debt?.category ?? (kind === 'purchase' ? product?.category : field(form, 'category')),
           notes: field(form, 'notes'),
           paid_outside_custody: kind === 'purchase' && field(form, 'payment_source') === 'external',
+          custody_excluded: original?.custody_excluded ?? false,
           amount: minor(amount), paid: kind === 'purchase' ? minor(field(form, 'paid')) : minor(amount),
           rate: currency === 'SAR' ? 1 : Number(rate), method: field(form, 'method'),
           product_id: kind === 'purchase' ? product?.id ?? null : null,

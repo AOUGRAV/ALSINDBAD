@@ -32,6 +32,10 @@ export async function saveCashTransfer(value: CashTransfer, expected: number, re
   const { error } = await supabase().rpc('save_cash_transfer', { payload: value, expected, remove });
   if (error) throw error;
 }
+export async function setCustodyExclusion(original: Entry, excluded: boolean) {
+  const { error } = await supabase().rpc('set_entry_custody_exclusion', { target: original.id, expected: original.revision, excluded });
+  if (error) throw error;
+}
 export async function saveEntry(entry: Entry) {
   const { error } = await supabase().rpc('record_entry', { payload: entryPayload(entry) });
   if (error) throw error;

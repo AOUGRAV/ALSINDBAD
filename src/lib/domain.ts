@@ -17,6 +17,7 @@ export const entrySchema = z.object({
   description: z.string().trim().min(1).max(500), category: z.string().trim().min(1).max(80),
   notes: z.string().trim().max(2000).nullish(),
   paid_outside_custody: z.boolean().nullish(),
+  custody_excluded: z.boolean().nullish(),
   scope: z.enum(['business', 'personal']), currency: z.enum(currencies),
   amount: z.number().int().positive().max(100_000_000_000),
   paid: z.number().int().nonnegative(), rate: z.number().positive().max(10000)
@@ -85,7 +86,7 @@ export const money = (amount: number, currency: Currency = 'SAR', lang: Lang = '
   new Intl.NumberFormat(lang === 'ar' ? 'ar-SA' : 'en-GB', { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount / 100);
 export const cashSign = (kind: Kind) => ['funding', 'borrow', 'collect'].includes(kind) ? 1 : -1;
 export const activeEntries = (entries: Entry[]) => entries.filter(entry => !entry.voided_at);
-export const cashAmount = (entry: Entry, inSar = false) => entry.opening || entry.voided_at || entry.paid_outside_custody ? 0 :
+export const cashAmount = (entry: Entry, inSar = false) => entry.opening || entry.voided_at || entry.paid_outside_custody || entry.custody_excluded ? 0 :
   cashSign(entry.kind) * (inSar ? baseAmount(entry, entry.paid) : entry.paid);
 export const debtPrincipal = (e: Entry) => e.kind === 'purchase' ? e.amount - e.paid : ['borrow', 'lend'].includes(e.kind) ? e.amount : 0;
 export const debtBalance = (entry: Entry, entries: Entry[]) => entry.voided_at ? 0 : debtPrincipal(entry) -
@@ -114,7 +115,8 @@ type DebtDraft = Pick<Entry, 'id' | 'created_at' | 'date' | 'amount' | 'rate' | 
   ({ debt: Entry } | Pick<Entry, 'party' | 'category' | 'scope' | 'currency' | 'opening'> & { direction: DebtDirection });
 
 export function prepareDebtEntry(draft: DebtDraft, data: Dataset, original?: Entry) {
-  const common = { paid: draft.amount, quantity: 0, product_id: null, container_id: null, receipt_path: original?.receipt_path ?? null };
+  const common = { paid: draft.amount, quantity: 0, product_id: null, container_id: null,
+    custody_excluded: original?.custody_excluded ?? false, receipt_path: original?.receipt_path ?? null };
   if ('debt' in draft) {
     const { debt, ...fields } = draft;
     return validateEntry({ ...common, ...fields, kind: settlementKind(debt), settles_id: debt.id,
@@ -132,6 +134,7 @@ export function preparePurchaseInvoice(draft: PurchaseInvoiceDraft, data: Datase
   if (!totals || totals.total <= 0) throw new Error('تحقق من الكميات والأسعار. يجب أن يكون إجمالي الفاتورة أكبر من صفر. / Check the invoice quantities and prices.');
   return validateEntry({
     ...draft, kind: 'purchase', amount: totals.total, paid: draft.paid ?? totals.total, scope: original?.scope ?? 'business',
+    custody_excluded: original?.custody_excluded ?? false,
     product_id: null, quantity: 0, settles_id: null, container_id: null, receipt_path: original?.receipt_path ?? null,
   }, data, original);
 }

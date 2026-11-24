@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { ChartNoAxesCombined, CircleDollarSign, ClipboardList, Globe2, LayoutDashboard, LockKeyhole, LogOut, MapPin, Menu, Plus, ReceiptText, RefreshCw, Ship, ShoppingBag, Wallet, X } from 'lucide-react';
 import { activeEntries, emptyData, type Container, type Dataset, type Lang } from '@/lib/domain';
 import { debtAccountKey } from '@/lib/debt-accounts';
-import { advanceContainer, configured, downloadReceipt, loadData, reviseEntry, saveAccountNote, saveCashTransfer, saveContainerManifest, saveDebtMovement, saveEntry, saveLoad, supabase, uploadReceipt } from '@/lib/storage';
+import { advanceContainer, configured, downloadReceipt, loadData, reviseEntry, saveAccountNote, saveCashTransfer, saveContainerManifest, saveDebtMovement, saveEntry, saveLoad, setCustodyExclusion, supabase, uploadReceipt } from '@/lib/storage';
 import { EditorDialog, errorMessage, translate, type Editor, type RecordChange } from './forms';
 import { DebtEditorDialog } from './debt-editor';
 import { DebtAccounts } from './debt-accounts';
@@ -13,7 +13,7 @@ import { ShipmentEditor } from './shipment-editor';
 import { Shipments } from './shipments';
 import { Dashboard, Ledger } from './views';
 import { Reports } from './reports';
-import { CashTransferEditor, Custody, InvoicePaymentEditor } from './custody';
+import { CashTransferEditor, Custody, CustodyExclusionEditor, InvoicePaymentEditor } from './custody';
 
 const navigation = [
   { id: 'overview', labels: ['نظرة عامة', 'Overview'], icon: LayoutDashboard },
@@ -133,7 +133,9 @@ export default function Workspace() {
     window.scrollTo(0, 0);
   }
   async function record(change: RecordChange) {
-    if (change.type === 'account-note') {
+    if (change.type === 'custody-exclusion') {
+      await setCustodyExclusion(change.original, change.excluded);
+    } else if (change.type === 'account-note') {
       await saveAccountNote(change.value, change.expected);
     } else if (change.type === 'transfer') {
       await saveCashTransfer(change.value, change.expected, change.remove);
@@ -251,7 +253,9 @@ export default function Workspace() {
       </main>
     </div>
     {notice && <div className="toast no-print" role="status">{notice}</div>}
-    {editor && ready && (editor.type === 'invoice-payment'
+    {editor && ready && (editor.type === 'custody-exclusion'
+      ? <CustodyExclusionEditor original={editor.original} excluded={editor.excluded} lang={lang} close={() => setEditor(null)} save={record} />
+      : editor.type === 'invoice-payment'
       ? <InvoicePaymentEditor original={editor.original} data={data} lang={lang} close={() => setEditor(null)} save={record} />
       : editor.type === 'transfer'
       ? <CashTransferEditor original={editor.original} lang={lang} close={() => setEditor(null)} save={record} />

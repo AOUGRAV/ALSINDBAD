@@ -142,6 +142,7 @@ export function DebtAccounts({ entries, notes = [], save, lang, selected, select
             <strong><MoneyAmount amount={amount} currency={first.currency} lang={lang} /></strong></div>
           {first.description !== label && <p>{first.description}</p>}
           {first.notes && <p className="record-note">{first.notes}</p>}
+          {rows.every(row => row.custody_excluded) && <span className="tag">{t('مستبعدة من العهدة', 'Excluded from custody')}</span>}
           {rows.length === 1 ? <AccountActions row={first} account={account} lang={lang} edit={edit} onReceipt={onReceipt} /> :
             <details className="detail"><summary>{t('تفاصيل توزيع المبلغ', 'Allocation details')}</summary>
               {rows.map(row => <div className="split-line account-part" key={row.id}>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { ArrowLeftRight, Ban, Check, Download, Pencil, Trash2, Wallet, X } from 'lucide-react';
+import { ArrowLeftRight, Check, Download, Pencil, Trash2, Wallet, X } from 'lucide-react';
 import { currencies, kindLabels, minor, today, validateEntry, type CashTransfer, type Dataset, type Entry, type Lang } from '@/lib/domain';
 import { cashAccount, custodyLedger, custodyPeriod } from '@/lib/custody';
 import { Empty } from './views';
@@ -14,12 +14,14 @@ export function Custody({ data, lang, edit, onReceipt }: {
   const t = translate(lang);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const [filter, setFilter] = useState<'all' | 'funding' | 'outgoing' | 'transfer'>('all');
+  const [filter, setFilter] = useState<'all' | 'funding' | 'outgoing' | 'transfer' | 'excluded'>('all');
   const ledger = custodyLedger(data.entries, data.cash_transfers);
   const period = custodyPeriod(ledger, from, to);
   const rows = [...period.rows].reverse().filter(row => filter === 'all' || (filter === 'transfer' ? row.transfer :
     filter === 'funding' ? row.entry?.kind === 'funding' : row.amount < 0));
   const validDates = !from || !to || from <= to;
+  const excludedEntries = data.entries.filter(entry => entry.custody_excluded && !entry.voided_at &&
+    (!from || entry.date >= from) && (!to || entry.date <= to)).sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at));
   const metrics = [
     { label: t('إجمالي المستلم', 'Total received'), amount: period.incoming },
     { label: t('إجمالي المصروف', 'Total paid'), amount: period.outgoing },
@@ -53,8 +55,20 @@ export function Custody({ data, lang, edit, onReceipt }: {
             <option value="funding">{t('المستلم من المالك', 'Received from owner')}</option>
             <option value="outgoing">{t('المدفوعات', 'Payments')}</option>
             <option value="transfer">{t('التحويلات الداخلية', 'Internal transfers')}</option>
+            <option value="excluded">{t('المستبعد من العهدة', 'Excluded from custody')}</option>
           </select></Field>
         </div>
+        {filter === 'excluded' ? <>
+          {!excludedEntries.length && <Empty>{t('لا توجد حركات مستبعدة.', 'No excluded movements.')}</Empty>}
+          {excludedEntries.map(entry => <article className="custody-row custody-transfer" key={entry.id}>
+            <div><strong>{entry.invoice_number ? t('فاتورة ', 'Invoice ') + entry.invoice_number : entry.description}</strong>
+              <small>{entry.party} · <bdi>{entry.date}</bdi> · {t(...kindLabels[entry.kind])}</small>
+              {entry.notes && <p className="record-note">{entry.notes}</p>}
+            </div>
+            <MoneyAmount amount={entry.paid} currency={entry.currency} lang={lang} />
+            <button className="btn secondary" onClick={() => edit({ type: 'custody-exclusion', original: entry, excluded: false })}>{t('إعادة للعهدة', 'Include in custody')}</button>
+          </article>)}
+        </> : <>
         {!rows.length && <Empty>{t('لا توجد حركات في هذه الفترة.', 'No movements in this period.')}</Empty>}
         <div className="custody-list">{rows.map(row => <article key={row.id} className="custody-row">
           {row.entry ? <div className="custody-transfer">
@@ -68,7 +82,7 @@ export function Custody({ data, lang, edit, onReceipt }: {
               {row.entry.receipt_path && <button className="icon-btn" aria-label={t('تنزيل المرفق', 'Download attachment')} onClick={() => onReceipt(row.entry.receipt_path!)}><Download size={16} /></button>}
               {row.entry.kind === 'purchase'
                 ? <button className="btn secondary" onClick={() => edit({ type: 'invoice-payment', original: row.entry })}>{t('تصحيح خصم العهدة', 'Correct custody deduction')}</button>
-                : <button className="icon-btn" aria-label={t('إلغاء الحركة', 'Void transaction')} onClick={() => edit({ type: 'void', original: row.entry })}><Ban size={16} /></button>}
+                : <button className="btn secondary" onClick={() => edit({ type: 'custody-exclusion', original: row.entry, excluded: true })}>{t('استبعاد من العهدة', 'Exclude from custody')}</button>}
             </div>
           </div> :
             <div className="custody-transfer">
@@ -84,10 +98,49 @@ export function Custody({ data, lang, edit, onReceipt }: {
             <MoneyAmount amount={Math.abs(row.amount || row.cash)} lang={lang} />
             <span>{t('المتبقي بعد الحركة', 'Balance after movement')}</span><strong><MoneyAmount amount={row.balance} lang={lang} /></strong>
           </div>
-        </article>)}</div>
+        </article>)}</div></>}
       </section>
     </>}
   </>;
+}
+
+export function CustodyExclusionEditor({ original, excluded, lang, close, save }: {
+  original: Entry; excluded: boolean; lang: Lang; close: () => void; save: (change: RecordChange) => Promise<void>;
+}) {
+  const t = translate(lang);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const title = excluded ? t('استبعاد من العهدة', 'Exclude from custody') : t('إعادة للعهدة', 'Include in custody');
+  useEffect(() => {
+    const node = dialog.current;
+    node?.showModal();
+    return () => { node?.close(); };
+  }, []);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      await save({ type: 'custody-exclusion', original, excluded });
+      close();
+    } catch (problem) {
+      setError(errorMessage(problem));
+      setBusy(false);
+    }
+  }
+  return <dialog ref={dialog} className="editor" aria-labelledby="custody-exclusion-title" onCancel={event => { event.preventDefault(); if (!busy) close(); }}>
+    <header className="dialog-head"><h2 id="custody-exclusion-title">{title}</h2>
+      <button className="icon-btn" type="button" onClick={close} disabled={busy} aria-label={t('إغلاق', 'Close')}><X size={19} /></button></header>
+    <form onSubmit={submit}>
+      <p>{original.party} · {original.description}</p>
+      <p><MoneyAmount amount={original.paid} currency={original.currency} lang={lang} /></p>
+      {error && <p className="error-box" role="alert">{error}</p>}
+      <footer className="dialog-actions"><button type="button" className="btn secondary" disabled={busy} onClick={close}>{t('رجوع', 'Back')}</button>
+        <button className="btn primary" disabled={busy}><Check size={16} />{busy ? t('جارٍ الحفظ…', 'Saving…') : title}</button></footer>
+    </form>
+  </dialog>;
 }
 
 export function InvoicePaymentEditor({ original, data, lang, close, save }: {

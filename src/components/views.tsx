@@ -51,6 +51,7 @@ export function EntryTable({ entries, lang, onReceipt, edit, compact = false, pu
             {(e.party || !expenses) && <small>{e.party}{!e.invoice_number && !expenses && <>{e.party && ' · '}{t(...kindLabels[e.kind])}</>}{e.opening && <> · {t('رصيد افتتاحي', 'Opening balance')}</>}</small>}
             {!compact && <InvoiceDetail entry={e} lang={lang} />}
             {e.paid_outside_custody && <span className="tag">{t('دُفعت من خارج العهدة', 'Paid outside custody')}</span>}
+            {e.custody_excluded && <span className="tag">{t('مستبعدة من العهدة', 'Excluded from custody')}</span>}
             {e.notes && <p className="record-note">{e.notes}</p>}
             {e.voided_at && <span className="tag void-tag">{t('ملغاة', 'Voided')}</span>}</div></div></td>
         <td data-label={t('التاريخ', 'Date')}><bdi className="muted">{e.date}</bdi></td>
