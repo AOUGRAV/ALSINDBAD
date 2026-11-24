@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const invoiceVatPercent = 15;
+export type InvoiceVatPercent = 0 | typeof invoiceVatPercent;
 export const maxInvoiceItems = 50;
 const maxEntryMinor = 100_000_000_000;
 
@@ -21,8 +22,8 @@ export function invoiceLineTotal(item: Pick<InvoiceItem, 'quantity' | 'unit_pric
   return result <= BigInt(maxEntryMinor) ? Number(result) : null;
 }
 
-export function invoiceTotals(items: Array<Pick<InvoiceItem, 'quantity' | 'unit_price'>>) {
-  if (!items.length || items.length > maxInvoiceItems) return null;
+export function invoiceTotals(items: Array<Pick<InvoiceItem, 'quantity' | 'unit_price'>>, vatPercent: InvoiceVatPercent = invoiceVatPercent) {
+  if (!items.length || items.length > maxInvoiceItems || (vatPercent !== 0 && vatPercent !== invoiceVatPercent)) return null;
   let subtotal = 0;
   for (const item of items) {
     const total = invoiceLineTotal(item);
@@ -30,7 +31,7 @@ export function invoiceTotals(items: Array<Pick<InvoiceItem, 'quantity' | 'unit_
     subtotal += total;
     if (subtotal > maxEntryMinor) return null;
   }
-  const vat = Math.floor((subtotal * invoiceVatPercent + 50) / 100);
+  const vat = Math.floor((subtotal * vatPercent + 50) / 100);
   const total = subtotal + vat;
   return total <= maxEntryMinor ? { subtotal, vat, total } : null;
 }

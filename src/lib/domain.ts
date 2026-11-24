@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { invoiceItemSchema, invoiceTotals, maxInvoiceItems, type InvoiceItem } from './purchases';
+import { invoiceItemSchema, invoiceTotals, invoiceVatPercent, maxInvoiceItems, type InvoiceItem, type InvoiceVatPercent } from './purchases';
 
 export const currencies = ['SAR', 'USD', 'GBP', 'EUR'] as const;
 export const kinds = ['funding', 'borrow', 'lend', 'purchase', 'expense', 'asset', 'collect', 'repay'] as const;
@@ -18,6 +18,7 @@ export const entrySchema = z.object({
   notes: z.string().trim().max(2000).nullish(),
   paid_outside_custody: z.boolean().nullish(),
   custody_excluded: z.boolean().nullish(),
+  invoice_vat_percent: z.union([z.literal(0), z.literal(invoiceVatPercent)]).nullish(),
   scope: z.enum(['business', 'personal']), currency: z.enum(currencies),
   amount: z.number().int().positive().max(100_000_000_000),
   paid: z.number().int().nonnegative(), rate: z.number().positive().max(10000)
@@ -39,7 +40,7 @@ export const entrySchema = z.object({
   if (v.kind === 'purchase') {
     if (v.invoice_number || v.invoice_items) {
       if (!v.invoice_number || !v.invoice_items || v.product_id || v.quantity) issue('رقم الفاتورة وبنودها مطلوبة / Invoice number and items are required');
-      else if (invoiceTotals(v.invoice_items)?.total !== v.amount) issue('الإجمالي لا يطابق بنود الفاتورة / Total does not match invoice items');
+      else if (invoiceTotals(v.invoice_items, v.invoice_vat_percent ?? invoiceVatPercent)?.total !== v.amount) issue('الإجمالي لا يطابق بنود الفاتورة / Total does not match invoice items');
     } else if (!v.product_id || v.quantity < 1) issue('اختر الصنف والكمية / Product and quantity required');
   } else if (v.product_id || v.quantity || v.invoice_number || v.invoice_items) issue('بنود الفاتورة خاصة بالمشتريات / Invoice items are only for purchases');
   if (['collect', 'repay'].includes(v.kind) !== Boolean(v.settles_id)) issue('اربط السداد بالدين / Link settlement to a debt');
@@ -127,13 +128,14 @@ export function prepareDebtEntry(draft: DebtDraft, data: Dataset, original?: Ent
 }
 
 type PurchaseInvoiceDraft = Pick<Entry, 'id' | 'created_at' | 'date' | 'party' | 'description' | 'category' | 'currency' | 'rate' | 'method'> &
-  { invoice_number: string; invoice_items: InvoiceItem[]; paid?: number; notes?: string; paid_outside_custody?: boolean };
+  { invoice_number: string; invoice_items: InvoiceItem[]; paid?: number; notes?: string; paid_outside_custody?: boolean; invoice_vat_percent?: InvoiceVatPercent };
 
 export function preparePurchaseInvoice(draft: PurchaseInvoiceDraft, data: Dataset, original?: Entry) {
-  const totals = invoiceTotals(draft.invoice_items);
+  const vatPercent = draft.invoice_vat_percent ?? original?.invoice_vat_percent ?? invoiceVatPercent;
+  const totals = invoiceTotals(draft.invoice_items, vatPercent);
   if (!totals || totals.total <= 0) throw new Error('تحقق من الكميات والأسعار. يجب أن يكون إجمالي الفاتورة أكبر من صفر. / Check the invoice quantities and prices.');
   return validateEntry({
-    ...draft, kind: 'purchase', amount: totals.total, paid: draft.paid ?? totals.total, scope: original?.scope ?? 'business',
+    ...draft, invoice_vat_percent: vatPercent, kind: 'purchase', amount: totals.total, paid: draft.paid ?? totals.total, scope: original?.scope ?? 'business',
     custody_excluded: original?.custody_excluded ?? false,
     product_id: null, quantity: 0, settles_id: null, container_id: null, receipt_path: original?.receipt_path ?? null,
   }, data, original);

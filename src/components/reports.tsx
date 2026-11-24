@@ -80,10 +80,10 @@ export function Reports({ data, lang }: { data: Dataset; lang: Lang }) {
       sar: [6], currencyColumn: 4,
     };
     if (kind === 'purchases') return {
-      headers: [date, invoiceNumber, party, currency, t('قبل الضريبة', 'Before VAT'), t('الضريبة', 'VAT') + ' ' + invoiceVatPercent + '%',
+      headers: [date, invoiceNumber, party, currency, t('قبل الضريبة', 'Before VAT'), t('الضريبة', 'VAT'),
         t('الإجمالي', 'Total'), t('المدفوع', 'Paid'), sar, t('ملاحظات', 'Notes')],
       rows: sorted(filtered.filter(e => e.kind === 'purchase')).map(e => {
-        const totals = e.invoice_items && invoiceTotals(e.invoice_items);
+        const totals = e.invoice_items && invoiceTotals(e.invoice_items, e.invoice_vat_percent ?? invoiceVatPercent);
         const paid = e.paid + debtPrincipal(e) - debtBalance(e, entries);
         return [e.date, e.invoice_number ?? '—', e.party, e.currency, totals ? totals.subtotal / 100 : '—',
           totals ? totals.vat / 100 : '—', e.amount / 100, paid / 100, baseAmount(e) / 100, e.notes ?? ''];

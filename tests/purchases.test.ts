@@ -10,8 +10,29 @@ test('invoice totals use line rounding and apply 15% VAT to the subtotal', () =>
   const fractional = { ...item, quantity: 0.5, unit_price: 19 };
   assert.equal(invoiceLineTotal(fractional), 10);
   assert.deepEqual(invoiceTotals([item, fractional]), { subtotal: 100010, vat: 15002, total: 115012 });
+  assert.deepEqual(invoiceTotals([item, fractional], 0), { subtotal: 100010, vat: 0, total: 100010 });
   assert.equal(invoiceLineTotal({ ...item, quantity: 1.0001 }), null);
   assert.equal(invoiceTotals([{ ...item, quantity: 100000000 }]), null);
+});
+
+test('a no-VAT invoice retains its choice on edit and uses its actual total for cash and debt', () => {
+  const data = emptyData();
+  const draft = {
+    id: randomUUID(), created_at: '2026-11-24T12:00:00Z', date: '2026-11-24',
+    party: 'Test seller', category: 'Purchases', description: 'No-VAT invoice',
+    currency: 'SAR' as const, rate: 1, method: 'cash' as const,
+    invoice_number: 'NO-VAT-1', invoice_items: [item], invoice_vat_percent: 0 as const, paid: 40000,
+  };
+  const original = preparePurchaseInvoice(draft, data);
+  assert.equal(original.amount, 100000);
+  assert.equal(original.invoice_vat_percent, 0);
+  assert.equal(cashAmount(original), -40000);
+  assert.equal(debtBalance(original, []), 60000);
+  data.entries.push(original);
+  const edited = preparePurchaseInvoice({ ...draft, invoice_vat_percent: undefined }, data, original);
+  assert.equal(edited.invoice_vat_percent, 0);
+  assert.equal(edited.amount, 100000);
+  assert.throws(() => validateEntry({ ...edited, invoice_vat_percent: 15 }, data, original), /Total does not match/);
 });
 
 test('purchase invoices work without stock and only the unpaid part is a debt', () => {

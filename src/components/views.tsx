@@ -14,7 +14,8 @@ function InvoiceDetail({ entry, lang }: { entry: Entry; lang: Lang }) {
   const t = translate(lang);
   const items = entry.invoice_items;
   if (!items) return null;
-  const totals = invoiceTotals(items);
+  const vatPercent = entry.invoice_vat_percent ?? invoiceVatPercent;
+  const totals = invoiceTotals(items, vatPercent);
   const method = { cash: t('نقدي', 'Cash'), bank: t('تحويل بنكي', 'Bank transfer'), card: t('بطاقة', 'Card') }[entry.method];
   return <details className="invoice-detail">
     <summary>{t('تفاصيل الفاتورة', 'Invoice details')}</summary>
@@ -22,7 +23,7 @@ function InvoiceDetail({ entry, lang }: { entry: Entry; lang: Lang }) {
       <span><bdi>{item.quantity}</bdi> {item.unit} × <MoneyAmount amount={item.unit_price} currency={entry.currency} lang={lang} /></span></li>)}</ul>
     {totals && <dl>
       <div><dt>{t('قبل الضريبة', 'Before VAT')}</dt><dd><MoneyAmount amount={totals.subtotal} currency={entry.currency} lang={lang} /></dd></div>
-      <div><dt>{t('الضريبة', 'VAT')} <bdi>{invoiceVatPercent}%</bdi></dt><dd><MoneyAmount amount={totals.vat} currency={entry.currency} lang={lang} /></dd></div>
+      <div><dt>{vatPercent ? <>{t('الضريبة', 'VAT')} <bdi>{vatPercent}%</bdi></> : t('بدون ضريبة', 'No VAT')}</dt><dd><MoneyAmount amount={totals.vat} currency={entry.currency} lang={lang} /></dd></div>
       <div><dt>{t('طريقة الدفع', 'Payment method')}</dt><dd>{method}</dd></div>
     </dl>}
   </details>;

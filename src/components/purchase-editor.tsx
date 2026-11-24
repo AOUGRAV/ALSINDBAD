@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Check, Plus, ScanText, Trash2, X } from 'lucide-react';
 import { currencies, minor, preparePurchaseInvoice, today, type Currency, type Dataset, type Entry, type Lang } from '@/lib/domain';
 import { MoneyAmount, PoundEquivalent } from './money-amount';
-import { invoiceLineTotal, invoiceTotals, invoiceVatPercent, maxInvoiceItems } from '@/lib/purchases';
+import { invoiceLineTotal, invoiceTotals, invoiceVatPercent, maxInvoiceItems, type InvoiceVatPercent } from '@/lib/purchases';
 import type { scanInvoice } from '@/lib/scan-invoice';
 import { receiptAccept, receiptExtension } from '@/lib/receipt';
 import { errorMessage, Field, translate, type PurchaseEditor, type RecordChange } from './forms';
@@ -31,6 +31,7 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
   const [paymentStatus, setPaymentStatus] = useState<'full' | 'partial' | 'unpaid'>(
     original?.paid === 0 ? 'unpaid' : original && original.paid < original.amount ? 'partial' : 'full');
   const [paidOutside, setPaidOutside] = useState(original?.paid_outside_custody ?? false);
+  const [vatPercent, setVatPercent] = useState<InvoiceVatPercent>(original?.invoice_vat_percent ?? invoiceVatPercent);
   const [paid, setPaid] = useState(String(original ? original.paid / 100 : 0));
   const [attachment, setAttachment] = useState<File | null>(null);
   const [reading, setReading] = useState(false);
@@ -42,7 +43,7 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
   const dialog = useRef<HTMLDialogElement>(null);
   const identity = useRef<Pick<Entry, 'id' | 'created_at'> | null>(null);
   const invoiceItems = items.map(item => ({ name: item.name.trim(), quantity: Number(item.quantity), unit: item.unit.trim(), unit_price: minor(item.price) }));
-  const totals = invoiceTotals(invoiceItems);
+  const totals = invoiceTotals(invoiceItems, vatPercent);
   const blocked = busy || reading;
   const canImportItems = !original && items.length === 1 && !items[0].name && !items[0].price && !items[0].unit && items[0].quantity === '1';
   const scanFields = scan?.fields;
@@ -105,6 +106,7 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
       const entry = preparePurchaseInvoice({
         ...identity.current, party, date, invoice_number: number, invoice_items: invoiceItems, currency,
         notes: value('notes'),
+        invoice_vat_percent: vatPercent,
         category: original?.category ?? t('مشتريات', 'Purchases'),
         description: t('فاتورة شراء ', 'Purchase invoice ') + number,
         method: value('method') as Entry['method'], rate: currency === 'SAR' ? 1 : Number(value('rate')),
@@ -153,6 +155,10 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
           <Field title={t('اشتريت من', 'Purchased from')} wide><input value={party} onChange={event => setParty(event.target.value)} placeholder={t('شركة، محل أو شخص', 'Company, shop, or person')} maxLength={120} required /></Field>
           <Field title={t('رقم الفاتورة', 'Invoice number')}><input value={invoiceNumber} onChange={event => setInvoiceNumber(event.target.value)} maxLength={80} required /></Field>
           <Field title={t('تاريخ الفاتورة', 'Invoice date')}><input type="date" value={date} onChange={event => { setDate(event.target.value); setDateEdited(true); }} required /></Field>
+          <Field title={t('الضريبة', 'VAT')}><select aria-label={t('الضريبة', 'VAT')} value={vatPercent} onChange={event => setVatPercent(Number(event.target.value) as InvoiceVatPercent)}>
+            <option value={invoiceVatPercent}>{t('ضريبة 15٪', '15% VAT')}</option>
+            <option value={0}>{t('بدون ضريبة', 'No VAT')}</option>
+          </select></Field>
           <Field title={t('حالة السداد', 'Payment status')}><select aria-label={t('حالة السداد', 'Payment status')} value={paymentStatus} onChange={event => setPaymentStatus(event.target.value as typeof paymentStatus)}>
             <option value="full">{t('مدفوعة بالكامل', 'Paid in full')}</option>
             <option value="partial">{t('مدفوعة جزئيًا', 'Partially paid')}</option>
@@ -198,7 +204,7 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
                   value={item.quantity} onChange={event => updateItem(item.id, 'quantity', event.target.value)} required /></Field>
                 <Field title={t('الوحدة', 'Unit')}><input value={item.unit} onChange={event => updateItem(item.id, 'unit', event.target.value)}
                   placeholder={t('مثال: كرتون', 'e.g. carton')} maxLength={30} required /></Field>
-                <Field title={t('سعر الوحدة قبل الضريبة', 'Unit price before VAT')}><input type="number" inputMode="decimal" min="0" max="1000000000" step="0.01"
+                <Field title={vatPercent ? t('سعر الوحدة قبل الضريبة', 'Unit price before VAT') : t('سعر الوحدة', 'Unit price')}><input type="number" inputMode="decimal" min="0" max="1000000000" step="0.01"
                   value={item.price} onChange={event => updateItem(item.id, 'price', event.target.value)} required />
                   {currency === 'SAR' && item.price && <PoundEquivalent amount={invoiceItems[index].unit_price} lang={lang} />}
                 </Field>
@@ -208,9 +214,9 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
           })}
         </div>
         <div className="purchase-totals" aria-live="polite">
-          <div><span>{t('قبل الضريبة', 'Subtotal before VAT')}</span><MoneyAmount amount={totals?.subtotal ?? null} currency={currency} lang={lang} /></div>
-          <div><span>{t('الضريبة', 'VAT')} <bdi>{invoiceVatPercent}%</bdi></span><MoneyAmount amount={totals?.vat ?? null} currency={currency} lang={lang} /></div>
-          <div><strong>{t('الإجمالي شامل الضريبة', 'Total including VAT')}</strong><strong><MoneyAmount amount={totals?.total ?? null} currency={currency} lang={lang} /></strong></div>
+          {vatPercent > 0 && <div><span>{t('قبل الضريبة', 'Subtotal before VAT')}</span><MoneyAmount amount={totals?.subtotal ?? null} currency={currency} lang={lang} /></div>}
+          <div><span>{vatPercent ? <>{t('الضريبة', 'VAT')} <bdi>{vatPercent}%</bdi></> : t('بدون ضريبة', 'No VAT')}</span><MoneyAmount amount={totals?.vat ?? null} currency={currency} lang={lang} /></div>
+          <div><strong>{vatPercent ? t('الإجمالي شامل الضريبة', 'Total including VAT') : t('الإجمالي', 'Total')}</strong><strong><MoneyAmount amount={totals?.total ?? null} currency={currency} lang={lang} /></strong></div>
         </div>
         {scanFields?.total && totals && items.every(item => item.name.trim() && item.price) &&
           (!scanFields.currency || scanFields.currency === currency) && totals.total !== minor(scanFields.total) &&
