@@ -22,9 +22,9 @@ export function SignIn({ lang, ready, configured, busy, error, submit, switchLan
       <div className="gate-entry">
       <h1 id="sign-in-title">{!ready ? t('جارٍ التحميل…', 'Loading…') : configured ? t('تسجيل الدخول', 'Sign in') : t('مساحة عمل خاصة', 'Private workspace')}</h1>
       {ready && (configured ? <form className="login-form" onSubmit={submit} aria-label={t('تسجيل الدخول', 'Sign in')}>
-        <label className="field"><span>{t('البريد الإلكتروني', 'Email address')}</span><input type="email" dir="ltr" name="email" autoComplete="username" required /></label>
+        <label className="field"><span>{t('البريد الإلكتروني', 'Email address')}</span><input type="email" dir="ltr" name="email" autoComplete="username" placeholder="name@example.com" required /></label>
         <label className="field"><span>{t('كلمة المرور', 'Password')}</span><span className="login-password">
-          <input type={showPassword ? 'text' : 'password'} name="password" autoComplete="current-password" required />
+          <input type={showPassword ? 'text' : 'password'} name="password" autoComplete="current-password" placeholder="••••••••" required />
           <button className="login-password-toggle" type="button" aria-label={showPassword ? t('إخفاء كلمة المرور', 'Hide password') : t('إظهار كلمة المرور', 'Show password')}
             aria-pressed={showPassword} onClick={() => setShowPassword(value => !value)}>
             {showPassword ? <EyeOff size={17} aria-hidden="true" /> : <Eye size={17} aria-hidden="true" />}

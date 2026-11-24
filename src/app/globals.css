@@ -304,44 +304,41 @@ body:has(.editor[open]) { overflow: hidden; }
 .report-table td { font-size: 12px; overflow-wrap: anywhere; }
 .report-panel .filters { padding-top: 0; }
 
-.gate { position: relative; isolation: isolate; min-height: 100vh; min-height: 100dvh; overflow: hidden; padding-bottom: 49px; color: #292e2b; background: radial-gradient(ellipse at 50% 3%, #eee8da 0, transparent 52%), #f8f7f2; }
-.gate-top { height: 75px; display: flex; justify-content: flex-end; align-items: center; padding: 14px 32px; position: relative; z-index: 1; }
+.gate { --entrance-height: 740px; --entrance-width: min(100%, 1024px); position: relative; isolation: isolate; min-height: max(var(--entrance-height), 100vh); min-height: max(var(--entrance-height), 100dvh); overflow: hidden; padding-bottom: 49px; color: #292e2b; background-color: #f8f7f2; background-image: radial-gradient(ellipse at 50% 3%, #eee8da 0, transparent 52%); background-position: center top; background-size: var(--entrance-width) var(--entrance-height); background-repeat: no-repeat; }
+.gate-top { width: var(--entrance-width); margin-inline: auto; height: 75px; display: flex; justify-content: flex-end; align-items: center; padding: 14px 32px; position: relative; z-index: 1; }
 .gate-language { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 8px 12px; background: transparent; border: 0; border-radius: 9px; font: inherit; font-size: 12px; color: #68665f; }
 .gate-language:hover { background: #eeebe2; }
-.gate-lines { position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: .6; }
+.gate-lines { position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: var(--entrance-width); height: var(--entrance-height); z-index: -1; pointer-events: none; opacity: .6; }
 .gate-line { position: absolute; border: 1px solid #c6bda9; width: 330px; height: 670px; border-radius: 180px 180px 0 0; bottom: -190px; transform: rotate(-25deg); }
 .gate-line-first { inset-inline-start: -125px; }
 .gate-line-second { inset-inline-end: -125px; transform: rotate(25deg); bottom: -230px; }
 .gate-card { position: relative; width: min(430px, calc(100% - 44px)); margin: 7px auto 0; padding: 31px 42px 25px; border: 1px solid #e7e2d7; border-radius: 24px; background: #fdfcf9; box-shadow: 0 14px 55px #5b4b2510, 0 1px 3px #5b4b2506; display: grid; justify-items: center; gap: 27px; }
 .gate-brand { display: grid; place-items: center; width: 100%; }
-.gate-brand .brand-logo { width: 168px; max-width: 100%; }
+.gate-brand .brand-logo { width: 168px; max-width: 100%; aspect-ratio: auto; }
+.gate-brand .brand-logo img { height: auto; }
 .gate-entry { display: grid; width: 100%; max-width: 330px; gap: 19px; }
 .gate-card h1 { font-size: 23px; font-weight: 500; line-height: 1.4; text-align: center; margin: 0 0 4px; letter-spacing: -.02em; }
 .gate-entry > p { color: var(--muted); font-size: 13px; text-align: center; }
 .login-form { display: grid; width: 100%; max-width: 330px; gap: 19px; margin: 0; }
 .login-form .field { gap: 9px; font-size: 13px; font-weight: 400; line-height: 1.5; color: #55574f; }
-.login-form .field input { height: 50px; border-color: #dcd7cc; border-radius: 11px; font-size: 15px; padding: 0 14px; }
+.login-form .field input { height: 50px; border-color: #dcd7cc; border-radius: 11px; font-size: 15px; font-weight: 400; color: #78756d; padding: 0 14px; }
+.login-form .field input::placeholder { color: #78756d; opacity: 1; }
 .login-password { display: block; position: relative; }
-.login-form .login-password input { padding-inline-end: 49px; }
+.login-form .login-password input { padding-inline-end: 49px; letter-spacing: .12em; }
 .login-password-toggle { position: absolute; inset-inline-end: 3px; top: 3px; min-width: 44px; min-height: 44px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: #858177; padding: 0; }
 .login-password-toggle:hover { background: #f5f2eb; }
-.login-form .login-submit { min-height: 50px; width: 100%; border: 1px solid #292e2b; border-radius: 11px; background: #292e2b; color: white; font-size: 15px; font-weight: 500; margin-top: 3px; box-shadow: none; }
+.login-form .login-submit { min-height: 50px; width: 100%; gap: 12px; border: 1px solid #292e2b; border-radius: 11px; background: #292e2b; color: white; font-size: 15px; font-weight: 500; margin-top: 3px; box-shadow: none; }
 .login-form .login-submit:hover:not(:disabled) { background: #3c443d; }
 [dir="ltr"] .login-submit > svg { transform: rotate(180deg); }
 .gate-card p.error-box { color: #862a26; }
 @media (max-width: 540px) {
-  .gate { padding-bottom: 39px; }
+  .gate { --entrance-height: 736px; padding-bottom: 39px; }
   .gate-top { height: 64px; padding: 10px 15px; }
   .gate-card { width: calc(100% - 36px); max-width: 400px; margin-top: 20px; padding: 30px 25px 32px; }
   .gate-brand .brand-logo { width: 154px; }
+  .gate-entry { gap: 20px; }
   .login-form { gap: 20px; }
   .login-form .field input { font-size: 16px; }
-}
-@media (max-height: 700px) and (min-width: 541px) {
-  .gate-top { height: 62px; }
-  .gate-card { margin-top: 0; padding-block: 24px; gap: 20px; }
-  .gate-brand .brand-logo { width: 142px; }
-  .login-form { gap: 16px; }
 }
 
 @media (max-width: 1120px) {
