@@ -15,6 +15,7 @@ const itemSchema = z.object({
   quantity: z.number().positive().max(100_000_000), purchase: amount,
   pack: z.number().int().min(1).max(100_000), sale: amount.nullable(),
   source: z.object({ invoiceId: z.uuid(), itemIndex: z.number().int().min(0) }).optional(),
+  invoiceIds: z.array(z.uuid()).optional(),
 }).refine(row => row.name || row.english, 'Product name is required');
 const expenseSchema = z.object({
   id: z.uuid(), label: text(500).min(1), stage: z.enum(expenseStages).or(z.literal('')),
@@ -60,29 +61,78 @@ export function copyInvoiceForPricing(invoice: Entry, existing: PricingItem[]): 
   });
 }
 
-export function copyContainerForPricing(data: Dataset, container: Container): PricingDocument {
+type ContainerPricingRow = {name: string; english: string; unit: string; quantity: number; total: number; invoiceIds: Set<string>};
+
+function containerPricingRows(data: Dataset, container: Container) {
   const { invoiceLines, lines, expenses } = containerCost(data, container);
   const entries = new Map(data.entries.map(entry => [entry.id, entry]));
   const products = new Map(data.products.map(product => [product.id, product]));
-  const grouped = new Map<string, {name: string; english: string; unit: string; quantity: number; total: number}>();
-  function include(source: {name: string; name_en?: string; unit: string} | undefined, quantity: number, cost: number) {
+  const grouped = new Map<string, ContainerPricingRow>();
+  function include(source: {name: string; name_en?: string; unit: string} | undefined, quantity: number, cost: number, invoiceId?: string) {
     if (!source || quantity <= 0) return;
     const english = englishName(source);
     const key = JSON.stringify([source.name, english.toLowerCase(), source.unit].map(s => s.trim().normalize('NFC')));
-    const current = grouped.get(key) ?? {name: source.name, english, unit: source.unit, quantity: 0, total: 0};
+    const current = grouped.get(key) ?? {name: source.name, english, unit: source.unit, quantity: 0, total: 0, invoiceIds: new Set<string>()};
     current.quantity = Math.round((current.quantity + quantity) * 1000) / 1000;
     current.total += cost;
+    if (invoiceId) current.invoiceIds.add(invoiceId);
     grouped.set(key, current);
   }
-  for (const line of invoiceLines) include(entries.get(line.entry_id)?.invoice_items?.[line.item_index], line.quantity, line.cost_sar);
+  for (const line of invoiceLines) include(entries.get(line.entry_id)?.invoice_items?.[line.item_index], line.quantity, line.cost_sar, line.entry_id);
   for (const line of lines) include(products.get(line.product_id), line.quantity, line.cost_sar);
+  return { rows: Array.from(grouped.values()), expenses };
+}
+
+export function copyContainerForPricing(data: Dataset, container: Container): PricingDocument {
+  const { rows, expenses } = containerPricingRows(data, container);
   return {
     allocation: 'quantity',
-    items: Array.from(grouped.values(), ({total, ...row}) => ({...row, id: crypto.randomUUID(), purchase: total / 100 / pricingRate / row.quantity, pack: 1, sale: null})),
+    items: rows.map(({total, invoiceIds, ...row}) => ({...row, id: crypto.randomUUID(), invoiceIds: [...invoiceIds],
+      purchase: total / 100 / pricingRate / row.quantity, pack: 1, sale: null})),
     expenses: expenses.map(entry => ({id: crypto.randomUUID(), label: entry.description, stage: '',
       amount: (entry.currency === 'GBP' ? entry.amount : baseAmount(entry)) / 100,
       currency: entry.currency === 'GBP' ? 'GBP' : 'SAR'})),
   };
+}
+
+const fingerprint = ({name, unit, quantity}: Pick<PricingItem, 'name' | 'unit' | 'quantity'>, cost: number) =>
+  JSON.stringify([name.trim().normalize('NFC'), unit.trim(), Math.round(quantity * 1000), cost]);
+
+// Earlier container copies stored amounts but did not record their source invoices.
+// Match the original quantities and costs so an unrelated product name alone never blocks an invoice.
+export function recoverPricingInvoiceSources(data: Dataset, sheet: Pick<PricingSheet, 'name' | 'document'>): PricingDocument {
+  const {document} = sheet;
+  const legacy = new Set(document.items.filter(row => !row.source && !row.invoiceIds)
+    .map(row => fingerprint(row, Math.round(row.purchase * row.quantity * 100 * pricingRate))));
+  if (!legacy.size) return document;
+  const match = (container: Container) => {
+    const matches = new Map<string, Set<string>>();
+    for (const row of containerPricingRows(data, container).rows) {
+      const key = fingerprint(row, row.total);
+      if (!legacy.has(key)) continue;
+      const ids = matches.get(key) ?? new Set<string>();
+      for (const id of row.invoiceIds) ids.add(id);
+      matches.set(key, ids);
+    }
+    return matches;
+  };
+  const named = data.containers.find(container => container.name.trim().toLowerCase() === sheet.name.trim().toLowerCase());
+  const candidates = named ? [match(named)] : data.containers.map(match).filter(result => result.size === legacy.size);
+  if (candidates.length !== 1 || !candidates[0].size) return document;
+  return {...document, items: document.items.map(row => {
+    if (row.source || row.invoiceIds) return row;
+    const ids = candidates[0].get(fingerprint(row, Math.round(row.purchase * row.quantity * 100 * pricingRate)));
+    return ids ? {...row, invoiceIds: [...ids]} : row;
+  })};
+}
+
+export function pricingInvoiceIds(items: PricingItem[]) {
+  const ids = new Set<string>();
+  for (const row of items) {
+    if (row.source) ids.add(row.source.invoiceId);
+    for (const id of row.invoiceIds ?? []) ids.add(id);
+  }
+  return ids;
 }
 
 export function unitPricing(quantity: number, purchase: number, expense: number, sale: number | null, pack = 1) {

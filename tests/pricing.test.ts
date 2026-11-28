@@ -1,11 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { calculatePricing, copyContainerForPricing, copyInvoiceForPricing, type PricingDocument } from '../src/lib/pricing';
+import { calculatePricing, copyContainerForPricing, copyInvoiceForPricing, pricingInvoiceIds, recoverPricingInvoiceSources, type PricingDocument } from '../src/lib/pricing';
 import { baseAmount, emptyData, preparePurchaseInvoice, type Container, type Entry } from '../src/lib/domain';
 
 test('pricing copies shipped items, even when excluded from the manifest export, and groups repeat purchases by their actual cost', () => {
   const data = emptyData();
-  const container = {id: 'container'} as Container;
+  const container = {id: 'container', name: 'Nov'} as Container;
+  data.containers.push(container);
   const item = {name: 'زيت', name_en: 'Oil', unit: 'Carton', quantity: 40, unit_price: 22000};
   data.entries = [
     {id: 'a', invoice_items: [item, {...item, name: 'شنطة', name_en: 'Gas-stove bag', export_excluded: true}]},
@@ -23,6 +24,15 @@ test('pricing copies shipped items, even when excluded from the manifest export,
     {english: 'Oil', quantity: 50, purchase: 50.6}, {english: 'Gas-stove bag', quantity: 1, purchase: 40},
   ]);
   assert.equal(document.expenses[0].amount, 120);
+  assert.deepEqual([...pricingInvoiceIds(document.items)].sort(), ['a', 'b']);
+  assert.deepEqual(document.items[0].invoiceIds, ['a', 'b']);
+  const legacy = {...document, items: document.items.map(row => ({...row, invoiceIds: undefined, sale: 65}))};
+  const recovered = recoverPricingInvoiceSources(data, {name: 'Nov', document: legacy});
+  assert.deepEqual([...pricingInvoiceIds(recovered.items)].sort(), ['a', 'b']);
+  assert.equal(recovered.items[0].sale, 65);
+  assert.deepEqual([...pricingInvoiceIds(recoverPricingInvoiceSources(data, {name: 'Nov', document: {
+    ...legacy, items: [{...legacy.items[0], quantity: 5}],
+  }}).items)], []);
   document.items.pop();
   assert.deepEqual(data, before);
 });
@@ -62,6 +72,7 @@ test('a detached purchase invoice can be copied directly, with its VAT and excha
   assert.equal(items.at(-1)?.english, 'Product 57');
   assert.equal(Math.round(calculatePricing({allocation:'quantity',items,expenses:[]}).goods * 500), baseAmount(invoice));
   assert.equal(copyInvoiceForPricing(invoice, items).length, 0);
+  assert.deepEqual([...pricingInvoiceIds(items)], [invoice.id]);
   assert.deepEqual(copyInvoiceForPricing(invoice, items.slice(0,-1)).map(item => item.english), ['Product 57']);
   assert.deepEqual(invoice, before);
   assert.equal(data.invoice_loads.length, 0);

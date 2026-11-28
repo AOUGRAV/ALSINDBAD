@@ -50,7 +50,7 @@ export function PricingRowEditor({ editor, lang, close, applyItem, applyExpense 
     if (editor.type === 'item') {
       const english = value(form, 'english'), name = value(form, 'name');
       if (!name && !english) {setError(t('اكتب اسم المنتج بالعربي أو الإنجليزي.', 'Enter an Arabic or English product name.')); return;}
-      applyItem({id, source: item?.source, name, english, unit: value(form, 'unit'), quantity: numeric(form, 'quantity'),
+      applyItem({id, source: item?.source, invoiceIds: item?.invoiceIds, name, english, unit: value(form, 'unit'), quantity: numeric(form, 'quantity'),
         purchase: toPounds(numeric(form, 'purchase'), purchaseCurrency), pack: numeric(form, 'pack'), sale: optional(form, 'sale')});
     } else {
       const label = value(form, 'label');

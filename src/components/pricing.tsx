@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent, type SetStateAction } from 'react';
 import { Calculator, FileSpreadsheet, Pencil, Plus, Save, Trash2 } from 'lucide-react';
 import type { Dataset, Lang } from '@/lib/domain';
-import { calculatePricing, copyContainerForPricing, copyInvoiceForPricing, emptyPricing, pricingLimit, pricingSheetSchema, toPounds, type PricingDocument, type PricingExpense, type PricingItem, type PricingSheet } from '@/lib/pricing';
+import { calculatePricing, copyContainerForPricing, copyInvoiceForPricing, emptyPricing, pricingInvoiceIds, pricingLimit, pricingSheetSchema, recoverPricingInvoiceSources, toPounds, type PricingDocument, type PricingExpense, type PricingItem, type PricingSheet } from '@/lib/pricing';
 import { loadPricingSheets, savePricingSheet } from '@/lib/pricing-storage';
 import { loadData } from '@/lib/storage';
 import { errorMessage, Field, translate } from './forms';
@@ -47,7 +47,7 @@ export function Pricing({ data, lang }: { data: Dataset; lang: Lang }) {
 
   const maySwitch = () => !dirty || window.confirm(t('عندك تعديلات غير محفوظة. تبي تترك الكشف؟', 'Leave this sheet and discard unsaved changes?'));
   function choose(sheet: PricingSheet | null, saved: boolean) {
-    setDraft(sheet);
+    setDraft(sheet && saved ? {...sheet, document: recoverPricingInvoiceSources(data, sheet)} : sheet);
     setExpected(saved ? sheet?.version ?? null : null);
     setDirty(Boolean(sheet && !saved));
     setView('items');
@@ -90,10 +90,12 @@ export function Pricing({ data, lang }: { data: Dataset; lang: Lang }) {
       const current = await loadData();
       const invoice = current.entries.find(row => row.id === source && row.kind === 'purchase' && !row.voided_at && row.invoice_items?.length);
       if (!invoice) throw new Error(t('الفاتورة غير موجودة.', 'Invoice not found.'));
-      const items = copyInvoiceForPricing(invoice, draft.document.items);
+      const document = recoverPricingInvoiceSources(current, draft);
+      if (pricingInvoiceIds(document.items).has(invoice.id)) throw new Error(t('هذه الفاتورة مضافة للكشف بالفعل.', 'This invoice is already in the sheet.'));
+      const items = copyInvoiceForPricing(invoice, document.items);
       if (!items.length) throw new Error(t('بنود هذه الفاتورة مضافة للكشف بالفعل.', 'This invoice has already been copied to the sheet.'));
-      if (draft.document.items.length + items.length > pricingLimit) throw new Error(t('الحد 500 منتج لكل كشف.', 'Each sheet supports up to 500 products.'));
-      update(old => ({...old, items: [...old.items, ...items]}));
+      if (document.items.length + items.length > pricingLimit) throw new Error(t('الحد 500 منتج لكل كشف.', 'Each sheet supports up to 500 products.'));
+      update({...document, items: [...document.items, ...items]});
       setMessage(t(`أُضيف ${items.length} بندًا. احفظ الكشف لتثبيت الإضافة.`, `${items.length} items added. Save the sheet to keep them.`));
       setDialog(null);
     } catch (problem) {setSourceError(errorMessage(problem));}
@@ -141,7 +143,8 @@ export function Pricing({ data, lang }: { data: Dataset; lang: Lang }) {
   const pct = (amount: number) => new Intl.NumberFormat(lang === 'ar' ? 'ar-SA' : 'en-GB', { style: 'percent', maximumFractionDigits: 1 }).format(amount);
   const itemHead = [t('المنتج', 'Product'), t('شراء الوحدة', 'Purchase per unit'), t('التكلفة بعد المصاريف', 'Landed per sale unit'), t('سعر البيع (£)', 'Sale price (£)'), t('ربح الوحدة', 'Profit per unit'), t('خيارات', 'Actions')];
   const stageLabel = (stage: PricingExpense['stage']) => ({UK: t('بريطانيا', 'UK'), Shipping: t('الشحن', 'Shipping'), Jeddah: t('جدة', 'Jeddah'), '': ''}[stage]);
-  const invoices = dialog === 'invoice' ? data.entries.filter(entry => entry.kind === 'purchase' && !entry.voided_at && entry.invoice_items?.length)
+  const addedInvoices = draft && dialog === 'invoice' ? pricingInvoiceIds(recoverPricingInvoiceSources(data, draft).items) : new Set<string>();
+  const invoices = dialog === 'invoice' ? data.entries.filter(entry => entry.kind === 'purchase' && !entry.voided_at && entry.invoice_items?.length && !addedInvoices.has(entry.id))
     .sort((a, b) => b.date.localeCompare(a.date)) : [];
   const openSource = (type: 'new' | 'invoice') => {
     setSource('');
@@ -232,7 +235,7 @@ export function Pricing({ data, lang }: { data: Dataset; lang: Lang }) {
     {dialog === 'invoice' && <PricingDialog title={t('إضافة من فاتورة مشتريات', 'Add from a purchase invoice')} lang={lang} close={() => {if (!copying) setDialog(null);}}>
       <form className="dialog-body" onSubmit={addFromInvoice}>
         <Field title={t('فاتورة المشتريات', 'Purchase invoice')}><select aria-label={t('فاتورة المشتريات', 'Purchase invoice')} required disabled={copying || !invoices.length} value={source} onChange={event => setSource(event.target.value)}>
-          <option value="">{invoices.length ? t('اختر فاتورة', 'Choose an invoice') : t('لا توجد فواتير مشتريات', 'No purchase invoices')}</option>
+          <option value="">{invoices.length ? t('اختر فاتورة', 'Choose an invoice') : t('لا توجد فواتير غير مضافة', 'No remaining invoices to add')}</option>
           {invoices.map(invoice => <option key={invoice.id} value={invoice.id}>{invoice.invoice_number} · {invoice.party} · {invoice.date}</option>)}
         </select></Field>
         {sourceError && <p className="error-box" role="alert">{sourceError}</p>}
