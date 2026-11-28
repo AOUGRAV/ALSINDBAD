@@ -444,4 +444,41 @@ body:has(.editor[open]) { overflow: hidden; }
 .product-export-details > summary { color: var(--muted); font-size: 12px; cursor: pointer; }
 .product-export-details > summary .tag { margin-inline-start: 8px; }
 .product-export-details > .field { margin-top: 10px; }
+
+.pricing-page { display: grid; gap: 13px; }
+.pricing-page .purchase-switch, .pricing-page .metric-grid { margin: 0; }
+.pricing-settings { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; padding: 14px; }
+.pricing-settings .field { flex: 1 1 148px; }
+.pricing-metrics.metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.pricing-metric { display: grid; align-content: start; justify-items: start; gap: 5px; font-size: 13px; padding: 14px 16px; }
+.pricing-metric .money-amount { font-size: clamp(17px, 2.3vw, 25px); font-weight: 750; overflow-wrap: anywhere; }
+.pricing-metric small { color: var(--muted); }
+.pricing-total { color: white; background: var(--brand); }
+.pricing-section-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 13px 15px; }
+.pricing-section-heading h2 { font-size: 19px; }
+.pricing-table th { white-space: normal; }
+.pricing-table td { overflow-wrap: anywhere; }
+.pricing-table td:first-child { width: 27%; }
+.pricing-table th, .pricing-table td { padding-inline: 10px; }
+.pricing-sale input { min-width: 82px; max-width: 130px; background: #fffbf0; }
+.pricing-loss { color: #9c392e; }
+.pricing-expense-list { padding-inline: 15px; }
+.pricing-expense { display: grid; grid-template-columns: minmax(0,1fr) auto auto; align-items: center; gap: 12px; border-top: 1px solid var(--border); padding-block: 10px; overflow-wrap: anywhere; }
+.pricing-row-actions { flex-wrap: nowrap; }
+.pricing-quick-result { margin-block-start: 14px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: #faf8f3; }
+@media (max-width: 780px) {
+  .pricing-table, .pricing-table tbody { display: block; }
+  .pricing-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .pricing-table tr { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 9px 12px; border-top: 1px solid var(--border); padding: 12px 15px; }
+  .pricing-table td { padding: 0; border: 0; }
+  .pricing-table td:first-child { grid-column: 1 / -1; width: auto; }
+  .pricing-table td:not(:first-child):not(:last-child)::before { content: attr(data-label); display: block; margin-bottom: 3px; color: var(--muted); font-size: 11px; }
+  .pricing-sale input { max-width: none; }
+}
+@media (max-width: 480px) {
+  .pricing-metrics.metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pricing-total { grid-column: 1 / -1; }
+  .pricing-expense { grid-template-columns: minmax(0,1fr) auto; }
+  .pricing-expense .pricing-row-actions { grid-column: 1 / -1; }
+}
 .product-export-details > .check-field { margin-top: 10px; }

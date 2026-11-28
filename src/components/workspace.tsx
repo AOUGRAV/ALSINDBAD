@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { ChartNoAxesCombined, CircleDollarSign, ClipboardList, Globe2, LayoutDashboard, LogOut, Menu, Plus, ReceiptText, RefreshCw, Ship, ShoppingBag, Wallet, X } from 'lucide-react';
+import dynamic from 'next/dynamic';
+import { Calculator, ChartNoAxesCombined, CircleDollarSign, ClipboardList, Globe2, LayoutDashboard, LogOut, Menu, Plus, ReceiptText, RefreshCw, Ship, ShoppingBag, Wallet, X } from 'lucide-react';
 import { activeEntries, emptyData, type Container, type Dataset, type Lang } from '@/lib/domain';
 import { debtAccounts, debtAccountKey } from '@/lib/debt-accounts';
 import { advanceContainer, configured, downloadReceipt, loadData, reviseEntry, saveAccountNote, saveCashTransfer, saveContainerManifest, saveDebtMovement, saveEntry, saveLoad, setCustodyExclusion, supabase, uploadReceipt } from '@/lib/storage';
@@ -16,6 +17,8 @@ import { Reports } from './reports';
 import { CashTransferEditor, Custody, CustodyExclusionEditor, InvoicePaymentEditor } from './custody';
 import { SignIn } from './sign-in';
 
+const Pricing = dynamic(() => import('./pricing').then(module => module.Pricing));
+
 const navigation = [
   { id: 'overview', labels: ['نظرة عامة', 'Overview'], icon: LayoutDashboard },
   { id: 'ledger', labels: ['الحركات المالية', 'Transactions'], icon: ClipboardList },
@@ -23,6 +26,7 @@ const navigation = [
   { id: 'purchases', labels: ['المشتريات والمصاريف', 'Purchases and expenses'], icon: ShoppingBag },
   { id: 'debts', labels: ['الديون والسلف', 'Debts and advances'], icon: CircleDollarSign },
   { id: 'shipments', labels: ['الحاويات والشحن', 'Containers'], icon: Ship },
+  { id: 'pricing', labels: ['التسعير والربح', 'Pricing and profit'], icon: Calculator },
   { id: 'receipts', labels: ['الفواتير', 'Invoices'], icon: ReceiptText },
   { id: 'reports', labels: ['التقارير', 'Reports'], icon: ChartNoAxesCombined },
 ] as const;
@@ -43,6 +47,7 @@ export default function Workspace() {
   const [data, setData] = useState<Dataset>(emptyData);
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [section, setSection] = useState<Section>('overview');
+  const [pricingOpened, setPricingOpened] = useState(false);
   const [purchaseView, setPurchaseView] = useState<'purchase' | 'expense'>('purchase');
   const [containerId, setContainerId] = useState<string | null>(null);
   const [debtAccountId, setDebtAccountId] = useState<string | null>(null);
@@ -118,6 +123,7 @@ export default function Workspace() {
       setData(emptyData());
       setLoadedFor(null);
       setSection('overview');
+      setPricingOpened(false);
       setPurchaseView('purchase');
       setContainerId(null);
       setDebtAccountId(null);
@@ -129,6 +135,7 @@ export default function Workspace() {
   }
   function navigate(target: Section) {
     setSection(target);
+    if (target === 'pricing') setPricingOpened(true);
     setMenu(false);
     setError('');
     window.scrollTo(0, 0);
@@ -221,7 +228,7 @@ export default function Workspace() {
       </header>
       <main className="main-content">
         <div className="page-heading no-print"><h1>{t(current.labels[0], current.labels[1])}</h1>
-          {ready && section !== 'reports' && <button className="btn primary" onClick={openEditor}><Plus size={19} />{action}</button>}
+          {ready && section !== 'reports' && section !== 'pricing' && <button className="btn primary" onClick={openEditor}><Plus size={19} />{action}</button>}
         </div>
         {error && <div className="error-box no-print" role="alert">{error}{!ready && <button className="btn secondary" onClick={() => setRefresh(n => n + 1)}>{t('إعادة المحاولة', 'Retry')}</button>}</div>}
         {!ready && !error && <p role="status" className="panel empty">{t('جارٍ تحميل السجلات…', 'Loading records…')}</p>}
@@ -238,6 +245,7 @@ export default function Workspace() {
           </>}
           {section === 'debts' && <DebtAccounts entries={currentEntries} notes={data.account_notes ?? []} save={record} lang={lang} selected={debtAccountId} select={setDebtAccountId} edit={setEditor} onReceipt={receipt} />}
           {section === 'shipments' && <Shipments data={data} lang={lang} selected={containerId} select={setContainerId} edit={setEditor} advance={changeStatus} updating={updating} onReceipt={receipt} />}
+          {pricingOpened && <div hidden={section !== 'pricing'}><Pricing key={userId} data={data} lang={lang} /></div>}
           {section === 'reports' && <Reports data={data} lang={lang} />}
         </>}
       </main>
