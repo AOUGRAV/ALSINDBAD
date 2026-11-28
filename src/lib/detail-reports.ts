@@ -4,7 +4,7 @@ import { cashAccount, custodyLedger, custodyPeriod } from './custody';
 import { poundsFromRiyals } from './pounds';
 
 export type ExportCell = string | number;
-export type ExportColumn = { title: string; width: number; format?: 'money' | 'quantity' };
+export type ExportColumn = { title: string; width: number; format?: 'money' | 'quantity'; direction?: 'rtl' | 'ltr' };
 export type ExportTable = { title: string; columns: ExportColumn[]; rows: ExportCell[][] };
 export type DetailReport = { title: string; subtitle: string; filename: string; lang: Lang; summary: ExportTable; tables: ExportTable[] };
 const money = (amount: number) => amount / 100;
@@ -16,20 +16,28 @@ const safeName = (name: string) => name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-
 export function containerReport(data: Dataset, container: Container, lang: Lang): DetailReport {
   const t = (ar: string, en: string) => lang === 'ar' ? ar : en;
   const cost = containerCost(data, container);
+  const invoiceLines = cost.invoiceLines.filter(line => !data.entries.find(entry => entry.id === line.entry_id)?.invoice_items?.[line.item_index]?.export_excluded);
+  const goods = [...cost.lines, ...invoiceLines].reduce((sum, line) => sum + line.cost_sar, 0);
+  const total = goods + cost.shipping;
+  const hasExclusions = invoiceLines.length !== cost.invoiceLines.length;
+  const englishName = (item?: { name: string; name_en?: string }) => item?.name_en?.trim() ||
+    (item?.name && /[A-Za-z]/.test(item.name) && !/[\u0600-\u06ff]/.test(item.name) ? item.name : '');
   const sar = amountColumn('SAR'), pound = amountColumn('GBP');
   const contents: ExportTable = {
     title: t('محتويات الحاوية', 'Container contents'),
-    columns: [textColumn(t('الفاتورة', 'Invoice'), 18), textColumn(t('المورد', 'Supplier'), 25), textColumn(t('المنتج', 'Product'), 34),
+    columns: [textColumn(t('الفاتورة', 'Invoice'), 18), textColumn(t('المورد', 'Supplier'), 25),
+      { ...textColumn(t('المنتج (عربي)', 'Product (Arabic)'), 34), direction: 'rtl' },
+      { ...textColumn('Product (English)', 42), direction: 'ltr' },
       textColumn(t('الوحدة', 'Unit'), 14), { title: t('الكمية المشحونة', 'Shipped quantity'), width: 20, format: 'quantity' },
       amountColumn(t('تكلفة الوحدة SAR', 'Unit cost SAR')), amountColumn(t('التكلفة SAR', 'Cost SAR')), pound, textColumn(t('ملاحظات الفاتورة', 'Invoice notes'), 36)],
-    rows: cost.invoiceLines.map(line => {
+    rows: invoiceLines.map(line => {
       const entry = data.entries.find(row => row.id === line.entry_id);
       const item = entry?.invoice_items?.[line.item_index];
-      return [entry?.invoice_number ?? '—', entry?.party ?? '—', item?.name ?? '—', item?.unit ?? '—', line.quantity,
+      return [entry?.invoice_number ?? '—', entry?.party ?? '—', item?.name ?? '—', englishName(item), item?.unit ?? '—', line.quantity,
         money(line.cost_sar) / line.quantity, money(line.cost_sar), gbp(line.cost_sar), entry?.notes ?? ''];
     }).concat(cost.lines.map(line => {
       const product = data.products.find(row => row.id === line.product_id);
-      return [t('سجل سابق', 'Legacy stock'), '—', product?.name ?? '—', product?.unit ?? '—', line.quantity,
+      return [t('سجل سابق', 'Legacy stock'), '—', product?.name ?? '—', englishName(product), product?.unit ?? '—', line.quantity,
         money(line.cost_sar) / line.quantity, money(line.cost_sar), gbp(line.cost_sar), ''];
     })),
   };
@@ -42,11 +50,11 @@ export function containerReport(data: Dataset, container: Container, lang: Lang)
   return {
     title: t('تفاصيل الحاوية', 'Container details') + ' · ' + container.name,
     subtitle: [container.destination, t(containerStatusLabels[container.status][0], containerStatusLabels[container.status][1]), container.booking && t('الحجز', 'Booking') + ' ' + container.booking, today()].filter(Boolean).join(' · '),
-    filename: safeName('ALSINDBAD-' + container.name), lang,
+    filename: safeName('ALSINDBAD-' + container.name + '-AR-EN'), lang,
     summary: { title: t('ملخص الحاوية', 'Container summary'), columns: [textColumn(t('البند', 'Item'), 38), sar, pound], rows: [
-      [t('تكلفة البضاعة', 'Goods cost'), money(cost.goods), gbp(cost.goods)],
+      [hasExclusions ? t('تكلفة البضاعة في الكشف', 'Goods cost in statement') : t('تكلفة البضاعة', 'Goods cost'), money(goods), gbp(goods)],
       [t('مصاريف الحاوية', 'Container expenses'), money(cost.shipping), gbp(cost.shipping)],
-      [t('التكلفة الإجمالية', 'Total cost'), money(cost.total), gbp(cost.total)],
+      [hasExclusions ? t('إجمالي الكشف', 'Statement total') : t('التكلفة الإجمالية', 'Total cost'), money(total), gbp(total)],
     ] }, tables: [contents, expenses],
   };
 }

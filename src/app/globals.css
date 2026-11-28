@@ -440,3 +440,8 @@ body:has(.editor[open]) { overflow: hidden; }
 .shipment-exports { padding-block: 10px; border-block: 1px solid var(--border); }
 .shipment-exports [role="status"] { color: var(--muted); font-size: 12px; }
 .purchase-item.manifest-invoice-head { display: flex; }
+.product-export-details { padding-block: 4px; }
+.product-export-details > summary { color: var(--muted); font-size: 12px; cursor: pointer; }
+.product-export-details > summary .tag { margin-inline-start: 8px; }
+.product-export-details > .field { margin-top: 10px; }
+.product-export-details > .check-field { margin-top: 10px; }

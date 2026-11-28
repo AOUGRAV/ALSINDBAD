@@ -109,7 +109,7 @@ export function Shipments({ data, lang, selected, select, edit, advance, updatin
         {invoiceGroups.get(entry.id)?.sort((a, b) => a.item_index - b.item_index).map(line => {
           const item = entry.invoice_items?.[line.item_index];
           if (!item) return null;
-          return <div className="split-line" key={line.item_index}><strong>{item.name}</strong><span><bdi>{line.quantity}</bdi> {item.unit}</span></div>;
+          return <div className="split-line" key={line.item_index}><div><strong>{item.name}</strong>{item.export_excluded && <small>{t('مستبعد من الكشف', 'Excluded from statement')}</small>}</div><span><bdi>{line.quantity}</bdi> {item.unit}</span></div>;
         })}
       </section>)}
       {cost.lines.length > 0 && <section className="purchase-item">

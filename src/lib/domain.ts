@@ -48,7 +48,7 @@ export const entrySchema = z.object({
   if (v.opening && !['borrow', 'lend'].includes(v.kind)) issue('الرصيد الافتتاحي مخصص للديون القائمة / Opening balances apply to existing debts');
 });
 export type Entry = z.infer<typeof entrySchema>;
-export type Product = { id: string; name: string; category: string; unit: string; expiry: string | null; created_at: string };
+export type Product = { id: string; name: string; name_en?: string; category: string; unit: string; expiry: string | null; created_at: string };
 export const containerStatusLabels = {
   preparing: ['قيد التجهيز', 'Preparing'], shipped: ['تم الشحن', 'Shipped'], arrived: ['وصلت', 'Arrived'],
 } as const;

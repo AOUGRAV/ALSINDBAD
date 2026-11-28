@@ -9,9 +9,9 @@ import type { scanInvoice } from '@/lib/scan-invoice';
 import { receiptAccept, receiptExtension } from '@/lib/receipt';
 import { errorMessage, Field, translate, type PurchaseEditor, type RecordChange } from './forms';
 
-type ItemFields = { id: number; name: string; quantity: string; unit: string; price: string };
+type ItemFields = { id: number; name: string; nameEnglish: string; exportExcluded: boolean; quantity: string; unit: string; price: string };
 type InvoiceScan = Awaited<ReturnType<typeof scanInvoice>>;
-const emptyItem = (id: number): ItemFields => ({ id, name: '', quantity: '1', unit: '', price: '' });
+const emptyItem = (id: number): ItemFields => ({ id, name: '', nameEnglish: '', exportExcluded: false, quantity: '1', unit: '', price: '' });
 
 export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
   editor: PurchaseEditor; data: Dataset; lang: Lang; close: () => void; save: (change: RecordChange) => Promise<void>;
@@ -19,7 +19,8 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
   const t = translate(lang);
   const { original } = editor;
   const [items, setItems] = useState<ItemFields[]>(() => original?.invoice_items?.map((item, id) => ({
-    id, name: item.name, quantity: String(item.quantity), unit: item.unit, price: (item.unit_price / 100).toFixed(2),
+    id, name: item.name, nameEnglish: item.name_en ?? '', exportExcluded: item.export_excluded ?? false,
+    quantity: String(item.quantity), unit: item.unit, price: (item.unit_price / 100).toFixed(2),
   })) ?? [emptyItem(0)]);
   const nextId = useRef(items.length);
   const [party, setParty] = useState(original?.party ?? '');
@@ -42,7 +43,8 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
   const [progress, setProgress] = useState(0);
   const dialog = useRef<HTMLDialogElement>(null);
   const identity = useRef<Pick<Entry, 'id' | 'created_at'> | null>(null);
-  const invoiceItems = items.map(item => ({ name: item.name.trim(), quantity: Number(item.quantity), unit: item.unit.trim(), unit_price: minor(item.price) }));
+  const invoiceItems = items.map(item => ({ name: item.name.trim(), name_en: item.nameEnglish.trim(), export_excluded: item.exportExcluded,
+    quantity: Number(item.quantity), unit: item.unit.trim(), unit_price: minor(item.price) }));
   const totals = invoiceTotals(invoiceItems, vatPercent);
   const blocked = busy || reading;
   const canImportItems = !original && items.length === 1 && !items[0].name && !items[0].price && !items[0].unit && items[0].quantity === '1';
@@ -54,8 +56,9 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
     return () => { node?.close(); };
   }, []);
 
-  function updateItem(id: number, field: keyof Omit<ItemFields, 'id'>, value: string) {
-    setItems(rows => rows.map(item => item.id === id ? { ...item, [field]: value } : item));
+  function updateItem(id: number, field: keyof Omit<ItemFields, 'id' | 'exportExcluded'>, value: string) {
+    setItems(rows => rows.map(item => item.id === id ? { ...item, [field]: value,
+      ...(field === 'name' && value !== item.name ? { nameEnglish: '' } : {}) } : item));
   }
 
   async function readInvoice() {
@@ -84,7 +87,8 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
     if (fields.currency && !original && !currencyEdited) setCurrency(fields.currency);
     if (scannedItems.length && canImportItems) {
       setItems(scannedItems.map(item => ({
-        id: nextId.current++, name: item.name, quantity: String(item.quantity), unit: item.unit, price: (item.unit_price / 100).toFixed(2),
+        id: nextId.current++, name: item.name, nameEnglish: '', exportExcluded: false,
+        quantity: String(item.quantity), unit: item.unit, price: (item.unit_price / 100).toFixed(2),
       })));
     }
     if (fields.number || fields.supplier || fields.date || fields.currency || scannedItems.length) {
@@ -199,6 +203,14 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
                 {items.length > 1 && <button className="icon-btn debt-delete" type="button" aria-label={t('حذف المنتج ', 'Remove product ') + (index + 1)}
                   onClick={() => setItems(rows => rows.filter(row => row.id !== item.id))}><Trash2 size={17} /></button>}
               </div>
+              <details className="product-export-details">
+                <summary>{t('بيانات كشف الحاوية', 'Container statement details')}{item.exportExcluded && <span className="tag">{t('مستبعد من الكشف', 'Excluded from statement')}</span>}</summary>
+                <Field title={t('اسم المنتج بالإنجليزي (اختياري)', 'English product name (optional)')}><input dir="ltr" value={item.nameEnglish}
+                  aria-label={t('اسم المنتج بالإنجليزي (اختياري)', 'English product name (optional)')}
+                  onChange={event => updateItem(item.id, 'nameEnglish', event.target.value)} maxLength={180} /></Field>
+                <label className="check-field"><input type="checkbox" checked={!item.exportExcluded}
+                  onChange={event => { const include = event.target.checked; setItems(rows => rows.map(row => row.id === item.id ? { ...row, exportExcluded: !include } : row)); }} />{t('إظهار المنتج في كشف الحاوية', 'Include product in container statement')}</label>
+              </details>
               <div className="purchase-item-amounts">
                 <Field title={t('الكمية', 'Quantity')}><input type="number" inputMode="decimal" min="0.001" max="100000000" step="0.001"
                   value={item.quantity} onChange={event => updateItem(item.id, 'quantity', event.target.value)} required /></Field>

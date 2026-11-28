@@ -7,6 +7,8 @@ const maxEntryMinor = 100_000_000_000;
 
 export const invoiceItemSchema = z.object({
   name: z.string().trim().min(1).max(140),
+  name_en: z.string().trim().max(180).optional(),
+  export_excluded: z.boolean().optional(),
   quantity: z.number().min(0.001).max(100_000_000)
     .refine(value => Math.round(value * 1000) / 1000 === value, 'الكمية تقبل حتى ثلاث خانات عشرية / Quantity supports up to three decimals'),
   unit: z.string().trim().min(1).max(30),

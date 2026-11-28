@@ -39,10 +39,11 @@ export async function reportWorkbook(report: DetailReport) {
     sheet.getRow(4).height = 30;
     const header = sheet.addRow(table.columns.map(column => column.title));
     header.height = 34;
-    header.eachCell(cell => {
+    header.eachCell((cell, column) => {
       cell.font = { name: 'Arial', bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF303436' } };
-      cell.alignment = { vertical: 'middle', horizontal: report.lang === 'ar' ? 'right' : 'left', wrapText: true };
+      const direction = table.columns[column - 1]?.direction;
+      cell.alignment = { vertical: 'middle', horizontal: direction === 'ltr' ? 'left' : report.lang === 'ar' ? 'right' : 'left', readingOrder: direction, wrapText: true };
     });
     for (const [index, values] of table.rows.entries()) {
       const row = sheet.addRow(values);
@@ -51,7 +52,8 @@ export async function reportWorkbook(report: DetailReport) {
       row.eachCell({ includeEmpty: true }, (cell, column) => {
         cell.font = { name: 'Arial', size: 11, color: { argb: 'FF303436' } };
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: index % 2 ? 'FFF4F2ED' : 'FFFFFFFF' } };
-        cell.alignment = { vertical: 'middle', horizontal: typeof cell.value === 'number' ? 'right' : report.lang === 'ar' ? 'right' : 'left', wrapText: true };
+        const direction = table.columns[column - 1]?.direction;
+        cell.alignment = { vertical: 'middle', horizontal: typeof cell.value === 'number' ? 'right' : direction === 'ltr' ? 'left' : report.lang === 'ar' ? 'right' : 'left', readingOrder: direction, wrapText: true };
         const format = table.columns[column - 1]?.format;
         if (format) cell.numFmt = format === 'quantity' ? '#,##0.###;[Red](#,##0.###);"—"' : '#,##0.00;[Red](#,##0.00);"—"';
         cell.border = { bottom: { style: 'hair', color: { argb: 'FFE3E0D9' } } };
@@ -118,7 +120,7 @@ export async function reportPdf(report: DetailReport) {
       styles: { font: 'Amiri', fontSize: 10, cellPadding: 2.5, valign: 'middle', halign: rtl ? 'right' : 'left', overflow: 'linebreak', lineColor: '#E3E0D9', lineWidth: { bottom: .15 } },
       headStyles: { font: 'Amiri', fontStyle: 'bold', fillColor: '#303436', textColor: '#FFFFFF', fontSize: 10 },
       alternateRowStyles: { fillColor: '#F4F2ED' },
-      columnStyles: Object.fromEntries(columns.map((column, index) => [index, { cellWidth: 269 * column.width / columns.reduce((sum, col) => sum + col.width, 0), halign: column.format ? 'right' : rtl ? 'right' : 'left' }])),
+      columnStyles: Object.fromEntries(columns.map((column, index) => [index, { cellWidth: 269 * column.width / columns.reduce((sum, col) => sum + col.width, 0), halign: column.format ? 'right' : column.direction === 'ltr' ? 'left' : rtl ? 'right' : 'left' }])),
       rowPageBreak: 'avoid',
       didParseCell: ({ cell }) => {
         // AutoTable defaults to an LTR paragraph. Use logical RTL input for
