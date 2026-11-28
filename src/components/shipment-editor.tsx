@@ -71,7 +71,6 @@ export function ShipmentEditor({ container, data, lang, close, save }: {
           }
           return [{ entry_id: entryId, item_index: itemIndex, quantity }];
         });
-        if (!selected.length) throw new Error(t('حدد كمية أو أزل الفاتورة من الحمولة.', 'Enter a quantity or remove the invoice from the manifest.'));
         return selected;
       });
       if (status !== 'preparing' && !lines.length && !data.loads.some(load => load.container_id === container?.id)) {
@@ -91,6 +90,8 @@ export function ShipmentEditor({ container, data, lang, close, save }: {
   }
 
   const unselected = invoices.filter(({ entry }) => !quantities[entry.id]);
+  const removing = invoices.filter(({ entry, items }) => items.some(item => item.assigned > 0) &&
+    !items.some(item => Number(quantities[entry.id]?.[item.index]) > 0));
   return <dialog ref={dialog} className="editor purchase-editor" aria-labelledby="shipment-title" onCancel={event => { event.preventDefault(); if (!busy) close(); }}>
     <header className="dialog-head">
       <h2 id="shipment-title">{container ? t('تعديل الحاوية', 'Edit container') : t('حاوية جديدة', 'New container')}</h2>
@@ -146,6 +147,10 @@ export function ShipmentEditor({ container, data, lang, close, save }: {
         </section>
       </fieldset>
       {error && <p className="error-box" role="alert">{error}</p>}
+      {removing.length > 0 && <p className="form-note" role="status">
+        {t('اضغط حفظ لفك الربط عن الحاوية. تبقى الفواتير في المشتريات.', 'Save to unlink from the container. The invoices stay in Purchases.')}
+        {' '}<bdi>{removing.map(({entry}) => entry.invoice_number).join('، ')}</bdi>
+      </p>}
       <footer className="dialog-actions">
         <button className="btn secondary" type="button" onClick={close} disabled={busy}>{t('رجوع', 'Back')}</button>
         <button className="btn primary" type="submit" disabled={busy}><Check size={17} />{busy ? t('جارٍ الحفظ…', 'Saving…') : t('حفظ', 'Save')}</button>

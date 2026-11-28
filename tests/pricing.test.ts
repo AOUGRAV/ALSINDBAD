@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { calculatePricing, copyContainerForPricing, type PricingDocument } from '../src/lib/pricing';
-import { emptyData, type Container, type Entry } from '../src/lib/domain';
+import { calculatePricing, copyContainerForPricing, copyInvoiceForPricing, type PricingDocument } from '../src/lib/pricing';
+import { baseAmount, emptyData, preparePurchaseInvoice, type Container, type Entry } from '../src/lib/domain';
 
 test('pricing copies shipped items, even when excluded from the manifest export, and groups repeat purchases by their actual cost', () => {
   const data = emptyData();
@@ -47,4 +47,22 @@ test('quantity and value both reconcile expenses and report profit only for pric
   assert.equal(value.priced, 1);
   assert.equal(value.rows[1].profit, null);
   assert.equal(calculatePricing({...document, items: []}).unallocated, 200);
+});
+
+test('a detached purchase invoice can be copied directly, with its VAT and exchange rounding and no duplicate copied lines', () => {
+  const data = emptyData();
+  const invoice = preparePurchaseInvoice({id: crypto.randomUUID(), created_at: '2026-11-05T12:00:00Z', date: '2026-11-05',
+    party: 'Supplier', description: 'Purchase invoice', category: 'Purchases', currency: 'USD', rate: 3.75,
+    method: 'bank', paid: 0, invoice_number: 'QA-DETACHED', invoice_vat_percent: 15, invoice_items: Array.from({length: 57}, (_, index) => ({
+      name: `منتج ${index + 1}`, name_en: `Product ${index + 1}`, quantity: index + 1, unit: 'كرتون', unit_price: 101 + index,
+    }))}, data);
+  const before = structuredClone(invoice);
+  const items = copyInvoiceForPricing(invoice, []);
+  assert.equal(items.length, 57);
+  assert.equal(items.at(-1)?.english, 'Product 57');
+  assert.equal(Math.round(calculatePricing({allocation:'quantity',items,expenses:[]}).goods * 500), baseAmount(invoice));
+  assert.equal(copyInvoiceForPricing(invoice, items).length, 0);
+  assert.deepEqual(copyInvoiceForPricing(invoice, items.slice(0,-1)).map(item => item.english), ['Product 57']);
+  assert.deepEqual(invoice, before);
+  assert.equal(data.invoice_loads.length, 0);
 });

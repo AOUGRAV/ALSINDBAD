@@ -1,7 +1,8 @@
 import { z } from 'zod';
-import { baseAmount, type Container, type Dataset } from './domain';
+import { baseAmount, type Container, type Dataset, type Entry } from './domain';
 import { containerCost } from './manifest';
 import { riyalsPerPound } from './pounds';
+import { invoiceLineTotal, invoiceVatPercent } from './purchases';
 
 export const pricingRate = Number(riyalsPerPound);
 export const pricingLimit = 500;
@@ -13,6 +14,7 @@ const itemSchema = z.object({
   id: z.uuid(), name: text(180), english: text(180), unit: text(40).min(1),
   quantity: z.number().positive().max(100_000_000), purchase: amount,
   pack: z.number().int().min(1).max(100_000), sale: amount.nullable(),
+  source: z.object({ invoiceId: z.uuid(), itemIndex: z.number().int().min(0) }).optional(),
 }).refine(row => row.name || row.english, 'Product name is required');
 const expenseSchema = z.object({
   id: z.uuid(), label: text(500).min(1), stage: z.enum(expenseStages).or(z.literal('')),
@@ -35,6 +37,29 @@ export type PricingCurrency = typeof pricingCurrencies[number];
 export const toPounds = (value: number, currency: PricingCurrency) => currency === 'SAR' ? value / pricingRate : value;
 export const emptyPricing = (): PricingDocument => ({ allocation: 'quantity', items: [], expenses: [] });
 
+const englishName = (item: { name: string; name_en?: string }) =>
+  item.name_en?.trim() || (/^[\x00-\x7F]+$/.test(item.name) ? item.name : '');
+
+export function copyInvoiceForPricing(invoice: Entry, existing: PricingItem[]): PricingItem[] {
+  if (invoice.kind !== 'purchase' || invoice.voided_at || !invoice.invoice_items) return [];
+  const copied = new Set(existing.filter(row => row.source?.invoiceId === invoice.id).map(row => row.source!.itemIndex));
+  const vat = invoice.invoice_vat_percent ?? invoiceVatPercent;
+  let net = 0;
+  let previousCost = 0;
+  return invoice.invoice_items.flatMap((item, index) => {
+    const line = invoiceLineTotal(item);
+    if (line === null || item.quantity <= 0) throw new Error('بيانات بند الفاتورة غير صحيحة / Invalid invoice line');
+    net += line;
+    const cost = baseAmount(invoice, net + Math.floor((net * vat + 50) / 100));
+    const lineCost = cost - previousCost;
+    previousCost = cost;
+    if (copied.has(index)) return [];
+    return [{ id: crypto.randomUUID(), name: item.name, english: englishName(item), unit: item.unit,
+      quantity: item.quantity, purchase: lineCost / 100 / pricingRate / item.quantity, pack: 1, sale: null,
+      source: { invoiceId: invoice.id, itemIndex: index } }];
+  });
+}
+
 export function copyContainerForPricing(data: Dataset, container: Container): PricingDocument {
   const { invoiceLines, lines, expenses } = containerCost(data, container);
   const entries = new Map(data.entries.map(entry => [entry.id, entry]));
@@ -42,7 +67,7 @@ export function copyContainerForPricing(data: Dataset, container: Container): Pr
   const grouped = new Map<string, {name: string; english: string; unit: string; quantity: number; total: number}>();
   function include(source: {name: string; name_en?: string; unit: string} | undefined, quantity: number, cost: number) {
     if (!source || quantity <= 0) return;
-    const english = source.name_en?.trim() || (/^[\x00-\x7F]+$/.test(source.name) ? source.name : '');
+    const english = englishName(source);
     const key = JSON.stringify([source.name, english.toLowerCase(), source.unit].map(s => s.trim().normalize('NFC')));
     const current = grouped.get(key) ?? {name: source.name, english, unit: source.unit, quantity: 0, total: 0};
     current.quantity = Math.round((current.quantity + quantity) * 1000) / 1000;

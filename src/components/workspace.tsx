@@ -50,6 +50,7 @@ export default function Workspace() {
   const [pricingOpened, setPricingOpened] = useState(false);
   const [purchaseView, setPurchaseView] = useState<'purchase' | 'expense'>('purchase');
   const [containerId, setContainerId] = useState<string | null>(null);
+  const [manifestRefreshing, setManifestRefreshing] = useState(false);
   const [debtAccountId, setDebtAccountId] = useState<string | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [menu, setMenu] = useState(false);
@@ -87,8 +88,8 @@ export default function Workspace() {
     let active = true;
     setError('');
     loadData().then(result => {
-      if (active) { setData(result); setLoadedFor(userId); }
-    }).catch(problem => { if (active) { setLoadedFor(null); setError(errorMessage(problem)); } });
+      if (active) { setData(result); setLoadedFor(userId); setManifestRefreshing(false); }
+    }).catch(problem => { if (active) { setLoadedFor(null); setError(errorMessage(problem)); setManifestRefreshing(false); } });
     return () => { active = false; };
   }, [userId, refresh]);
   useEffect(() => {
@@ -122,6 +123,7 @@ export default function Workspace() {
       setUserId(null);
       setData(emptyData());
       setLoadedFor(null);
+      setManifestRefreshing(false);
       setSection('overview');
       setPricingOpened(false);
       setPurchaseView('purchase');
@@ -161,6 +163,7 @@ export default function Workspace() {
     } else if (change.type === 'manifest') {
       await saveContainerManifest(change.value, change.lines, change.expected, change.expenses);
       setContainerId(change.value.id);
+      setManifestRefreshing(true);
     } else {
       await saveLoad(change.value);
     }
@@ -244,7 +247,9 @@ export default function Workspace() {
             <Ledger key={purchaseView} entries={entries} lang={lang} kind={purchaseView} onReceipt={receipt} edit={setEditor} />
           </>}
           {section === 'debts' && <DebtAccounts entries={currentEntries} notes={data.account_notes ?? []} save={record} lang={lang} selected={debtAccountId} select={setDebtAccountId} edit={setEditor} onReceipt={receipt} />}
-          {section === 'shipments' && <Shipments data={data} lang={lang} selected={containerId} select={setContainerId} edit={setEditor} advance={changeStatus} updating={updating} onReceipt={receipt} />}
+          {section === 'shipments' && (manifestRefreshing
+            ? <p role="status" className="panel empty">{t('جارٍ تحديث الحمولة…', 'Refreshing the manifest…')}</p>
+            : <Shipments data={data} lang={lang} selected={containerId} select={setContainerId} edit={setEditor} advance={changeStatus} updating={updating} onReceipt={receipt} />)}
           {pricingOpened && <div hidden={section !== 'pricing'}><Pricing key={userId} data={data} lang={lang} /></div>}
           {section === 'reports' && <Reports data={data} lang={lang} />}
         </>}

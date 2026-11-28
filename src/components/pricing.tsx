@@ -3,8 +3,9 @@
 import { useEffect, useState, type FormEvent, type SetStateAction } from 'react';
 import { Calculator, FileSpreadsheet, Pencil, Plus, Save, Trash2 } from 'lucide-react';
 import type { Dataset, Lang } from '@/lib/domain';
-import { calculatePricing, copyContainerForPricing, emptyPricing, pricingLimit, pricingSheetSchema, toPounds, type PricingDocument, type PricingExpense, type PricingItem, type PricingSheet } from '@/lib/pricing';
+import { calculatePricing, copyContainerForPricing, copyInvoiceForPricing, emptyPricing, pricingLimit, pricingSheetSchema, toPounds, type PricingDocument, type PricingExpense, type PricingItem, type PricingSheet } from '@/lib/pricing';
 import { loadPricingSheets, savePricingSheet } from '@/lib/pricing-storage';
+import { loadData } from '@/lib/storage';
 import { errorMessage, Field, translate } from './forms';
 import { PricingDialog, PricingMoney, PricingRowEditor, QuickPricing } from './pricing-forms';
 
@@ -19,9 +20,11 @@ export function Pricing({ data, lang }: { data: Dataset; lang: Lang }) {
   const [expected, setExpected] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [revision, setRevision] = useState(0);
-  const [dialog, setDialog] = useState<'new' | 'quick' | null>(null);
+  const [dialog, setDialog] = useState<'new' | 'invoice' | 'quick' | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [source, setSource] = useState('');
+  const [sourceError, setSourceError] = useState('');
+  const [copying, setCopying] = useState(false);
   const [view, setView] = useState<'items' | 'expenses'>('items');
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -56,20 +59,45 @@ export function Pricing({ data, lang }: { data: Dataset; lang: Lang }) {
     setDirty(true);
     setMessage('');
   }
-  function create(e: FormEvent<HTMLFormElement>) {
+  async function create(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const name = String(new FormData(e.currentTarget).get('name') ?? '').trim();
-    if (!name) return;
-    const container = data.containers.find(row => row.id === source);
-    const document = container ? copyContainerForPricing(data, container) : emptyPricing();
-    if (document.items.length > pricingLimit || document.expenses.length > pricingLimit) {
-      setMessage('');
-      setError(t('الحد 500 منتج أو مصروف لكل كشف.', 'Each sheet supports up to 500 products and 500 expenses.'));
+    if (!name || copying) return;
+    setCopying(true);
+    setSourceError('');
+    try {
+      let document = emptyPricing();
+      if (source) {
+        const current = await loadData();
+        const container = current.containers.find(row => row.id === source);
+        if (!container) throw new Error(t('الحاوية غير موجودة.', 'Container not found.'));
+        document = copyContainerForPricing(current, container);
+      }
+      if (document.items.length > pricingLimit || document.expenses.length > pricingLimit) {
+        throw new Error(t('الحد 500 منتج أو مصروف لكل كشف.', 'Each sheet supports up to 500 products and 500 expenses.'));
+      }
+      choose({ id: crypto.randomUUID(), version: crypto.randomUUID(), name, document, updated_at: new Date().toISOString() }, false);
       setDialog(null);
-      return;
-    }
-    choose({ id: crypto.randomUUID(), version: crypto.randomUUID(), name, document, updated_at: new Date().toISOString() }, false);
-    setDialog(null);
+    } catch (problem) {setSourceError(errorMessage(problem));}
+    finally {setCopying(false);}
+  }
+  async function addFromInvoice(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!draft || !source || copying) return;
+    setCopying(true);
+    setSourceError('');
+    try {
+      const current = await loadData();
+      const invoice = current.entries.find(row => row.id === source && row.kind === 'purchase' && !row.voided_at && row.invoice_items?.length);
+      if (!invoice) throw new Error(t('الفاتورة غير موجودة.', 'Invoice not found.'));
+      const items = copyInvoiceForPricing(invoice, draft.document.items);
+      if (!items.length) throw new Error(t('بنود هذه الفاتورة مضافة للكشف بالفعل.', 'This invoice has already been copied to the sheet.'));
+      if (draft.document.items.length + items.length > pricingLimit) throw new Error(t('الحد 500 منتج لكل كشف.', 'Each sheet supports up to 500 products.'));
+      update(old => ({...old, items: [...old.items, ...items]}));
+      setMessage(t(`أُضيف ${items.length} بندًا. احفظ الكشف لتثبيت الإضافة.`, `${items.length} items added. Save the sheet to keep them.`));
+      setDialog(null);
+    } catch (problem) {setSourceError(errorMessage(problem));}
+    finally {setCopying(false);}
   }
   function validate() {
     const parsed = pricingSheetSchema.safeParse(draft);
@@ -113,10 +141,17 @@ export function Pricing({ data, lang }: { data: Dataset; lang: Lang }) {
   const pct = (amount: number) => new Intl.NumberFormat(lang === 'ar' ? 'ar-SA' : 'en-GB', { style: 'percent', maximumFractionDigits: 1 }).format(amount);
   const itemHead = [t('المنتج', 'Product'), t('شراء الوحدة', 'Purchase per unit'), t('التكلفة بعد المصاريف', 'Landed per sale unit'), t('سعر البيع (£)', 'Sale price (£)'), t('ربح الوحدة', 'Profit per unit'), t('خيارات', 'Actions')];
   const stageLabel = (stage: PricingExpense['stage']) => ({UK: t('بريطانيا', 'UK'), Shipping: t('الشحن', 'Shipping'), Jeddah: t('جدة', 'Jeddah'), '': ''}[stage]);
-  const openNew = () => {if (maySwitch()) {setSource(''); setDialog('new');}};
+  const invoices = dialog === 'invoice' ? data.entries.filter(entry => entry.kind === 'purchase' && !entry.voided_at && entry.invoice_items?.length)
+    .sort((a, b) => b.date.localeCompare(a.date)) : [];
+  const openSource = (type: 'new' | 'invoice') => {
+    setSource('');
+    setSourceError('');
+    setError('');
+    setDialog(type);
+  };
   return <div className="pricing-page">
     <div className="actions pricing-toolbar">
-      <button className="btn primary" disabled={busy || sheets === null} onClick={openNew}><Plus size={17} />{t('كشف جديد', 'New sheet')}</button>
+      <button className="btn primary" disabled={busy || sheets === null} onClick={() => {if (maySwitch()) openSource('new');}}><Plus size={17} />{t('كشف جديد', 'New sheet')}</button>
       <button className="btn secondary" onClick={() => setDialog('quick')}><Calculator size={17} />{t('حسبة سريعة', 'Quick calculator')}</button>
       {draft && <button className="btn secondary" disabled={exporting || busy} onClick={download}><FileSpreadsheet size={17} />{exporting ? t('جارٍ التصدير…', 'Exporting…') : t('تصدير Excel', 'Export Excel')}</button>}
     </div>
@@ -153,7 +188,11 @@ export function Pricing({ data, lang }: { data: Dataset; lang: Lang }) {
       </div>
       <section className="panel pricing-table-panel">
         <div className="pricing-section-heading"><h2>{view === 'items' ? t('تسعير المنتجات', 'Product pricing') : t('مصاريف الكشف', 'Sheet expenses')}</h2>
-          <button className="btn secondary" disabled={busy || draft.document[view].length >= pricingLimit} onClick={() => setEditor({type: view === 'items' ? 'item' : 'expense'})}><Plus size={16} />{view === 'items' ? t('إضافة منتج', 'Add product') : t('إضافة مصروف', 'Add expense')}</button></div>
+          <div className="actions">
+            {view === 'items' && <button className="btn secondary" disabled={busy || draft.document.items.length >= pricingLimit} onClick={() => openSource('invoice')}>{t('إضافة من فاتورة', 'Add from invoice')}</button>}
+            <button className="btn secondary" disabled={busy || draft.document[view].length >= pricingLimit} onClick={() => setEditor({type: view === 'items' ? 'item' : 'expense'})}><Plus size={16} />{view === 'items' ? t('إضافة منتج', 'Add product') : t('إضافة مصروف', 'Add expense')}</button>
+          </div>
+        </div>
         {view === 'items' && (draft.document.items.length === 0 ? <p className="empty">{t('لا توجد منتجات في الكشف.', 'No products in this sheet.')}</p> :
           <div className="table-scroll"><table className="pricing-table" aria-label={t('تسعير المنتجات', 'Product pricing')}>
             <thead><tr>{itemHead.map(title => <th key={title} scope="col">{title}</th>)}</tr></thead>
@@ -182,12 +221,23 @@ export function Pricing({ data, lang }: { data: Dataset; lang: Lang }) {
         </div>}
       </section>
     </>}
-    {dialog === 'new' && <PricingDialog title={t('كشف تسعير جديد', 'New pricing sheet')} lang={lang} close={() => setDialog(null)}>
+    {dialog === 'new' && <PricingDialog title={t('كشف تسعير جديد', 'New pricing sheet')} lang={lang} close={() => {if (!copying) setDialog(null);}}>
       <form className="dialog-body" onSubmit={create}><div className="form-grid">
-        <Field wide title={t('نسخ بيانات من حاوية (اختياري)', 'Copy from a container (optional)')}><select value={source} onChange={event => setSource(event.target.value)}>
+        <Field wide title={t('نسخ بيانات من حاوية (اختياري)', 'Copy from a container (optional)')}><select disabled={copying} value={source} onChange={event => setSource(event.target.value)}>
           <option value="">{t('بدء كشف فارغ', 'Start blank')}</option>{data.containers.map(container => <option key={container.id} value={container.id}>{container.name}</option>)}</select></Field>
-        <Field wide title={t('اسم الكشف', 'Sheet name')}><input key={source} name="name" required maxLength={160} pattern=".*\S.*" defaultValue={data.containers.find(container => container.id === source)?.name} /></Field>
-      </div><footer className="dialog-actions"><button className="btn primary">{t('إنشاء الكشف', 'Create sheet')}</button></footer></form>
+        <Field wide title={t('اسم الكشف', 'Sheet name')}><input disabled={copying} key={source} name="name" required maxLength={160} pattern=".*\S.*" defaultValue={data.containers.find(container => container.id === source)?.name} /></Field>
+      </div>{sourceError && <p className="error-box" role="alert">{sourceError}</p>}
+      <footer className="dialog-actions"><button className="btn primary" disabled={copying}>{copying ? t('جارٍ نسخ الحمولة…', 'Copying manifest…') : t('إنشاء الكشف', 'Create sheet')}</button></footer></form>
+    </PricingDialog>}
+    {dialog === 'invoice' && <PricingDialog title={t('إضافة من فاتورة مشتريات', 'Add from a purchase invoice')} lang={lang} close={() => {if (!copying) setDialog(null);}}>
+      <form className="dialog-body" onSubmit={addFromInvoice}>
+        <Field title={t('فاتورة المشتريات', 'Purchase invoice')}><select aria-label={t('فاتورة المشتريات', 'Purchase invoice')} required disabled={copying || !invoices.length} value={source} onChange={event => setSource(event.target.value)}>
+          <option value="">{invoices.length ? t('اختر فاتورة', 'Choose an invoice') : t('لا توجد فواتير مشتريات', 'No purchase invoices')}</option>
+          {invoices.map(invoice => <option key={invoice.id} value={invoice.id}>{invoice.invoice_number} · {invoice.party} · {invoice.date}</option>)}
+        </select></Field>
+        {sourceError && <p className="error-box" role="alert">{sourceError}</p>}
+        <footer className="dialog-actions"><button className="btn primary" disabled={copying || !source}>{copying ? t('جارٍ النسخ…', 'Copying…') : t('إضافة بنود الفاتورة', 'Add invoice items')}</button></footer>
+      </form>
     </PricingDialog>}
     {dialog === 'quick' && <QuickPricing lang={lang} close={() => setDialog(null)} />}
     {editor && <PricingRowEditor editor={editor} lang={lang} close={() => setEditor(null)}
