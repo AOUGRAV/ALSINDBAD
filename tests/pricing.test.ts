@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { calculatePricing, copyContainerForPricing, copyInvoiceForPricing, pricingInvoiceIds, recoverPricingInvoiceSources, type PricingDocument } from '../src/lib/pricing';
+import { calculatePricing, copyContainerForPricing, copyExpenseForPricing, copyInvoiceForPricing, pricingInvoiceIds, recoverPricingExpenseSources, recoverPricingInvoiceSources, type PricingDocument } from '../src/lib/pricing';
 import { baseAmount, emptyData, preparePurchaseInvoice, type Container, type Entry } from '../src/lib/domain';
 
 test('pricing copies shipped items, even when excluded from the manifest export, and groups repeat purchases by their actual cost', () => {
@@ -24,6 +24,14 @@ test('pricing copies shipped items, even when excluded from the manifest export,
     {english: 'Oil', quantity: 50, purchase: 50.6}, {english: 'Gas-stove bag', quantity: 1, purchase: 40},
   ]);
   assert.equal(document.expenses[0].amount, 120);
+  assert.equal(document.expenses[0].currency, 'GBP');
+  assert.equal(document.expenses[0].entryId, 'uk');
+  const oldExpenses = document.expenses.map(row => ({...row, entryId: undefined, stage: 'UK' as const}));
+  assert.deepEqual(recoverPricingExpenseSources(data, {name: 'Nov', document: {...document, expenses: oldExpenses}}),
+    [{...oldExpenses[0], entryId: 'uk'}]);
+  const usd = copyExpenseForPricing({...data.entries[2], currency: 'USD', amount: 10000, rate: 3.75});
+  assert.equal(usd.currency, 'SAR');
+  assert.equal(usd.amount, 375);
   assert.deepEqual([...pricingInvoiceIds(document.items)].sort(), ['a', 'b']);
   assert.deepEqual(document.items[0].invoiceIds, ['a', 'b']);
   const legacy = {...document, items: document.items.map(row => ({...row, invoiceIds: undefined, sale: 65}))};

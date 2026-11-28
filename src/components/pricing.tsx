@@ -2,8 +2,8 @@
 
 import { useEffect, useState, type FormEvent, type SetStateAction } from 'react';
 import { Calculator, FileSpreadsheet, Pencil, Plus, Save, Trash2 } from 'lucide-react';
-import type { Dataset, Lang } from '@/lib/domain';
-import { calculatePricing, copyContainerForPricing, copyInvoiceForPricing, emptyPricing, pricingInvoiceIds, pricingLimit, pricingSheetSchema, recoverPricingInvoiceSources, toPounds, type PricingDocument, type PricingExpense, type PricingItem, type PricingSheet } from '@/lib/pricing';
+import { baseAmount, money as formatMoney, type Dataset, type Lang } from '@/lib/domain';
+import { calculatePricing, copyContainerForPricing, copyExpenseForPricing, copyInvoiceForPricing, emptyPricing, pricingInvoiceIds, pricingLimit, pricingSheetSchema, recoverPricingExpenseSources, recoverPricingInvoiceSources, toPounds, type PricingDocument, type PricingExpense, type PricingItem, type PricingSheet } from '@/lib/pricing';
 import { loadPricingSheets, savePricingSheet } from '@/lib/pricing-storage';
 import { loadData } from '@/lib/storage';
 import { errorMessage, Field, translate } from './forms';
@@ -20,7 +20,7 @@ export function Pricing({ data, lang }: { data: Dataset; lang: Lang }) {
   const [expected, setExpected] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [revision, setRevision] = useState(0);
-  const [dialog, setDialog] = useState<'new' | 'invoice' | 'quick' | null>(null);
+  const [dialog, setDialog] = useState<'new' | 'invoice' | 'expense' | 'quick' | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [source, setSource] = useState('');
   const [sourceError, setSourceError] = useState('');
@@ -47,7 +47,7 @@ export function Pricing({ data, lang }: { data: Dataset; lang: Lang }) {
 
   const maySwitch = () => !dirty || window.confirm(t('عندك تعديلات غير محفوظة. تبي تترك الكشف؟', 'Leave this sheet and discard unsaved changes?'));
   function choose(sheet: PricingSheet | null, saved: boolean) {
-    setDraft(sheet && saved ? {...sheet, document: recoverPricingInvoiceSources(data, sheet)} : sheet);
+    setDraft(sheet && saved ? {...sheet, document: {...recoverPricingInvoiceSources(data, sheet), expenses: recoverPricingExpenseSources(data, sheet)}} : sheet);
     setExpected(saved ? sheet?.version ?? null : null);
     setDirty(Boolean(sheet && !saved));
     setView('items');
@@ -101,6 +101,24 @@ export function Pricing({ data, lang }: { data: Dataset; lang: Lang }) {
     } catch (problem) {setSourceError(errorMessage(problem));}
     finally {setCopying(false);}
   }
+  async function addFromExpense(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!draft || !source || copying) return;
+    setCopying(true);
+    setSourceError('');
+    try {
+      const current = await loadData();
+      const entry = current.entries.find(row => row.id === source && row.kind === 'expense' && !row.voided_at);
+      if (!entry) throw new Error(t('المصروف غير موجود.', 'Expense not found.'));
+      const expenses = recoverPricingExpenseSources(current, draft);
+      if (expenses.some(row => row.entryId === entry.id)) throw new Error(t('المصروف مضاف للكشف بالفعل.', 'This expense is already in the sheet.'));
+      if (expenses.length >= pricingLimit) throw new Error(t('الحد 500 مصروف لكل كشف.', 'Each sheet supports up to 500 expenses.'));
+      update(old => ({...old, expenses: [...expenses, copyExpenseForPricing(entry)]}));
+      setMessage(t('أُضيف المصروف. احفظ الكشف لتثبيت الإضافة.', 'Expense added. Save the sheet to keep it.'));
+      setDialog(null);
+    } catch (problem) {setSourceError(errorMessage(problem));}
+    finally {setCopying(false);}
+  }
   function validate() {
     const parsed = pricingSheetSchema.safeParse(draft);
     if (parsed.success) return parsed.data;
@@ -146,7 +164,11 @@ export function Pricing({ data, lang }: { data: Dataset; lang: Lang }) {
   const addedInvoices = draft && dialog === 'invoice' ? pricingInvoiceIds(recoverPricingInvoiceSources(data, draft).items) : new Set<string>();
   const invoices = dialog === 'invoice' ? data.entries.filter(entry => entry.kind === 'purchase' && !entry.voided_at && entry.invoice_items?.length && !addedInvoices.has(entry.id))
     .sort((a, b) => b.date.localeCompare(a.date)) : [];
-  const openSource = (type: 'new' | 'invoice') => {
+  const addedExpenses = draft && dialog === 'expense' ? new Set(recoverPricingExpenseSources(data, draft).map(row => row.entryId)) : new Set<string>();
+  const expenses = dialog === 'expense' ? data.entries.filter(entry => entry.kind === 'expense' && !entry.voided_at && !addedExpenses.has(entry.id))
+    .sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at)) : [];
+  const selectedExpense = expenses.find(entry => entry.id === source);
+  const openSource = (type: 'new' | 'invoice' | 'expense') => {
     setSource('');
     setSourceError('');
     setError('');
@@ -193,6 +215,7 @@ export function Pricing({ data, lang }: { data: Dataset; lang: Lang }) {
         <div className="pricing-section-heading"><h2>{view === 'items' ? t('تسعير المنتجات', 'Product pricing') : t('مصاريف الكشف', 'Sheet expenses')}</h2>
           <div className="actions">
             {view === 'items' && <button className="btn secondary" disabled={busy || draft.document.items.length >= pricingLimit} onClick={() => openSource('invoice')}>{t('إضافة من فاتورة', 'Add from invoice')}</button>}
+            {view === 'expenses' && <button className="btn secondary" disabled={busy || draft.document.expenses.length >= pricingLimit} onClick={() => openSource('expense')}>{t('إضافة من مصروف مسجّل', 'Add a recorded expense')}</button>}
             <button className="btn secondary" disabled={busy || draft.document[view].length >= pricingLimit} onClick={() => setEditor({type: view === 'items' ? 'item' : 'expense'})}><Plus size={16} />{view === 'items' ? t('إضافة منتج', 'Add product') : t('إضافة مصروف', 'Add expense')}</button>
           </div>
         </div>
@@ -240,6 +263,19 @@ export function Pricing({ data, lang }: { data: Dataset; lang: Lang }) {
         </select></Field>
         {sourceError && <p className="error-box" role="alert">{sourceError}</p>}
         <footer className="dialog-actions"><button className="btn primary" disabled={copying || !source}>{copying ? t('جارٍ النسخ…', 'Copying…') : t('إضافة بنود الفاتورة', 'Add invoice items')}</button></footer>
+      </form>
+    </PricingDialog>}
+    {dialog === 'expense' && <PricingDialog title={t('إضافة من مصروف مسجّل', 'Add a recorded expense')} lang={lang} close={() => {if (!copying) setDialog(null);}}>
+      <form className="dialog-body" onSubmit={addFromExpense}>
+        <Field title={t('المصروف المسجّل', 'Recorded expense')}><select aria-label={t('المصروف المسجّل', 'Recorded expense')} required disabled={copying || !expenses.length} value={source} onChange={event => setSource(event.target.value)}>
+          <option value="">{expenses.length ? t('اختر مصروفًا', 'Choose an expense') : t('لا توجد مصاريف مسجّلة غير مضافة', 'No remaining recorded expenses to add')}</option>
+          {expenses.map(entry => <option key={entry.id} value={entry.id}>{entry.description} · {formatMoney(entry.amount, entry.currency, lang)} · {entry.date}</option>)}
+        </select></Field>
+        {selectedExpense && selectedExpense.currency !== 'GBP' && selectedExpense.currency !== 'SAR' && <p className="table-sub">
+          {t('يُنسخ بما يعادله بالريال', 'Copied at the recorded SAR equivalent')} <bdi>{formatMoney(baseAmount(selectedExpense), 'SAR', lang)}</bdi>
+        </p>}
+        {sourceError && <p className="error-box" role="alert">{sourceError}</p>}
+        <footer className="dialog-actions"><button className="btn primary" disabled={copying || !source}>{copying ? t('جارٍ النسخ…', 'Copying…') : t('إضافة المصروف', 'Add expense')}</button></footer>
       </form>
     </PricingDialog>}
     {dialog === 'quick' && <QuickPricing lang={lang} close={() => setDialog(null)} />}

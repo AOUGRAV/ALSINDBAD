@@ -55,7 +55,7 @@ export function PricingRowEditor({ editor, lang, close, applyItem, applyExpense 
     } else {
       const label = value(form, 'label');
       if (!label) {setError(t('اكتب اسم المصروف.', 'Enter an expense name.')); return;}
-      applyExpense({id, label, stage: value(form, 'stage') as PricingExpense['stage'], amount: numeric(form, 'amount'), currency: value(form, 'currency') as PricingCurrency});
+      applyExpense({id, entryId: expense?.entryId, label, stage: value(form, 'stage') as PricingExpense['stage'], amount: numeric(form, 'amount'), currency: value(form, 'currency') as PricingCurrency});
     }
     close();
   }

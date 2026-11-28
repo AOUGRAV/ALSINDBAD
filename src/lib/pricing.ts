@@ -19,7 +19,7 @@ const itemSchema = z.object({
 }).refine(row => row.name || row.english, 'Product name is required');
 const expenseSchema = z.object({
   id: z.uuid(), label: text(500).min(1), stage: z.enum(expenseStages).or(z.literal('')),
-  amount, currency: z.enum(pricingCurrencies),
+  amount, currency: z.enum(pricingCurrencies), entryId: z.uuid().optional(),
 });
 export const pricingDocumentSchema = z.object({
   allocation: z.enum(['quantity', 'value']), items: z.array(itemSchema).max(pricingLimit),
@@ -40,6 +40,15 @@ export const emptyPricing = (): PricingDocument => ({ allocation: 'quantity', it
 
 const englishName = (item: { name: string; name_en?: string }) =>
   item.name_en?.trim() || (/^[\x00-\x7F]+$/.test(item.name) ? item.name : '');
+
+function pricingExpenseFields(entry: Entry): Pick<PricingExpense, 'label' | 'amount' | 'currency'> {
+  return {label: entry.description, amount: (entry.currency === 'GBP' ? entry.amount : baseAmount(entry)) / 100,
+    currency: entry.currency === 'GBP' ? 'GBP' : 'SAR'};
+}
+
+export function copyExpenseForPricing(entry: Entry): PricingExpense {
+  return {id: crypto.randomUUID(), entryId: entry.id, stage: '', ...pricingExpenseFields(entry)};
+}
 
 export function copyInvoiceForPricing(invoice: Entry, existing: PricingItem[]): PricingItem[] {
   if (invoice.kind !== 'purchase' || invoice.voided_at || !invoice.invoice_items) return [];
@@ -89,9 +98,7 @@ export function copyContainerForPricing(data: Dataset, container: Container): Pr
     allocation: 'quantity',
     items: rows.map(({total, invoiceIds, ...row}) => ({...row, id: crypto.randomUUID(), invoiceIds: [...invoiceIds],
       purchase: total / 100 / pricingRate / row.quantity, pack: 1, sale: null})),
-    expenses: expenses.map(entry => ({id: crypto.randomUUID(), label: entry.description, stage: '',
-      amount: (entry.currency === 'GBP' ? entry.amount : baseAmount(entry)) / 100,
-      currency: entry.currency === 'GBP' ? 'GBP' : 'SAR'})),
+    expenses: expenses.map(copyExpenseForPricing),
   };
 }
 
@@ -133,6 +140,29 @@ export function pricingInvoiceIds(items: PricingItem[]) {
     for (const id of row.invoiceIds ?? []) ids.add(id);
   }
   return ids;
+}
+
+export function recoverPricingExpenseSources(data: Dataset, sheet: Pick<PricingSheet, 'name' | 'document'>): PricingExpense[] {
+  const expenses = sheet.document.expenses;
+  if (!expenses.some(row => !row.entryId)) return expenses;
+  const container = data.containers.find(row => row.name.trim().toLowerCase() === sheet.name.trim().toLowerCase());
+  if (!container) return expenses;
+  // Older copies used the description and amount but omitted the expense ID.
+  const key = (row: Pick<PricingExpense, 'label' | 'currency' | 'amount'>) => JSON.stringify([row.label.trim(), row.currency, row.amount]);
+  const matches = new Map<string, string[]>();
+  const claimed = new Set(expenses.map(row => row.entryId));
+  for (const entry of data.entries) {
+    if (entry.kind !== 'expense' || entry.voided_at || entry.container_id !== container.id) continue;
+    const signature = key(pricingExpenseFields(entry));
+    matches.set(signature, [...(matches.get(signature) ?? []), entry.id]);
+  }
+  return expenses.map(row => {
+    if (row.entryId) return row;
+    const ids = matches.get(key(row));
+    if (ids?.length !== 1 || claimed.has(ids[0])) return row;
+    claimed.add(ids[0]);
+    return {...row, entryId: ids[0]};
+  });
 }
 
 export function unitPricing(quantity: number, purchase: number, expense: number, sale: number | null, pack = 1) {
