@@ -4,14 +4,14 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Check, Plus, ScanText, Trash2, X } from 'lucide-react';
 import { currencies, minor, preparePurchaseInvoice, today, type Currency, type Dataset, type Entry, type Lang } from '@/lib/domain';
 import { MoneyAmount, PoundEquivalent } from './money-amount';
-import { invoiceLineTotal, invoiceTotals, invoiceVatPercent, maxInvoiceItems, type InvoiceVatPercent } from '@/lib/purchases';
+import { invoiceLineTotal, invoiceTotals, invoiceVatPercent, maxInvoiceItems, purchaseUnits, standardPurchaseUnit, type InvoiceVatPercent } from '@/lib/purchases';
 import type { scanInvoice } from '@/lib/scan-invoice';
 import { receiptAccept, receiptExtension } from '@/lib/receipt';
 import { errorMessage, Field, translate, type PurchaseEditor, type RecordChange } from './forms';
 
 type ItemFields = { id: number; name: string; nameEnglish: string; exportExcluded: boolean; quantity: string; unit: string; price: string };
 type InvoiceScan = Awaited<ReturnType<typeof scanInvoice>>;
-const emptyItem = (id: number): ItemFields => ({ id, name: '', nameEnglish: '', exportExcluded: false, quantity: '1', unit: '', price: '' });
+const emptyItem = (id: number): ItemFields => ({ id, name: '', nameEnglish: '', exportExcluded: false, quantity: '1', unit: 'كرتون', price: '' });
 
 export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
   editor: PurchaseEditor; data: Dataset; lang: Lang; close: () => void; save: (change: RecordChange) => Promise<void>;
@@ -20,7 +20,7 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
   const { original } = editor;
   const [items, setItems] = useState<ItemFields[]>(() => original?.invoice_items?.map((item, id) => ({
     id, name: item.name, nameEnglish: item.name_en ?? '', exportExcluded: item.export_excluded ?? false,
-    quantity: String(item.quantity), unit: item.unit, price: (item.unit_price / 100).toFixed(2),
+    quantity: String(item.quantity), unit: standardPurchaseUnit(item.unit) ?? item.unit, price: (item.unit_price / 100).toFixed(2),
   })) ?? [emptyItem(0)]);
   const nextId = useRef(items.length);
   const [party, setParty] = useState(original?.party ?? '');
@@ -47,7 +47,7 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
     quantity: Number(item.quantity), unit: item.unit.trim(), unit_price: minor(item.price) }));
   const totals = invoiceTotals(invoiceItems, vatPercent);
   const blocked = busy || reading;
-  const canImportItems = !original && items.length === 1 && !items[0].name && !items[0].price && !items[0].unit && items[0].quantity === '1';
+  const canImportItems = !original && items.length === 1 && !items[0].name && !items[0].price && items[0].quantity === '1';
   const scanFields = scan?.fields;
 
   useEffect(() => {
@@ -88,7 +88,7 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
     if (scannedItems.length && canImportItems) {
       setItems(scannedItems.map(item => ({
         id: nextId.current++, name: item.name, nameEnglish: '', exportExcluded: false,
-        quantity: String(item.quantity), unit: item.unit, price: (item.unit_price / 100).toFixed(2),
+        quantity: String(item.quantity), unit: standardPurchaseUnit(item.unit) ?? '', price: (item.unit_price / 100).toFixed(2),
       })));
     }
     if (fields.number || fields.supplier || fields.date || fields.currency || scannedItems.length) {
@@ -113,7 +113,8 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
         invoice_vat_percent: vatPercent,
         category: original?.category ?? t('مشتريات', 'Purchases'),
         description: t('فاتورة شراء ', 'Purchase invoice ') + number,
-        method: value('method') as Entry['method'], rate: currency === 'SAR' ? 1 : Number(value('rate')),
+        method: paymentStatus === 'unpaid' ? original?.method ?? 'cash' : value('method') as Entry['method'],
+        rate: currency === 'SAR' ? 1 : Number(value('rate')),
         paid: paymentStatus === 'unpaid' ? 0 : paymentStatus === 'partial' ? minor(value('paid')) : undefined,
         paid_outside_custody: paymentStatus !== 'unpaid' && paidOutside,
       }, data, original);
@@ -176,9 +177,9 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
             max={totals ? totals.total / 100 : undefined} step="0.01" value={paid} onChange={event => setPaid(event.target.value)} required />
             {currency === 'SAR' && paid && <PoundEquivalent amount={minor(paid)} lang={lang} />}
           </Field>}
-          <Field title={t('طريقة الدفع', 'Payment method')}><select name="method" defaultValue={original?.method ?? 'cash'}>
+          {paymentStatus !== 'unpaid' && <Field title={t('طريقة الدفع', 'Payment method')}><select name="method" defaultValue={original?.method ?? 'cash'}>
             <option value="cash">{t('نقدي', 'Cash')}</option><option value="bank">{t('تحويل بنكي', 'Bank transfer')}</option><option value="card">{t('بطاقة', 'Card')}</option>
-          </select></Field>
+          </select></Field>}
           <Field title={t('العملة', 'Currency')}><select value={currency} onChange={event => { setCurrency(event.target.value as Currency); setCurrencyEdited(true); }}>
             {currencies.map(code => <option key={code} value={code}>{code === 'SAR' ? t('ريال سعودي', 'Saudi riyal') : code}</option>)}
           </select></Field>
@@ -214,8 +215,11 @@ export function PurchaseEditorDialog({ editor, data, lang, close, save }: {
               <div className="purchase-item-amounts">
                 <Field title={t('الكمية', 'Quantity')}><input type="number" inputMode="decimal" min="0.001" max="100000000" step="0.001"
                   value={item.quantity} onChange={event => updateItem(item.id, 'quantity', event.target.value)} required /></Field>
-                <Field title={t('الوحدة', 'Unit')}><input value={item.unit} onChange={event => updateItem(item.id, 'unit', event.target.value)}
-                  placeholder={t('مثال: كرتون', 'e.g. carton')} maxLength={30} required /></Field>
+                <Field title={t('الوحدة', 'Unit')}><select value={item.unit} onChange={event => updateItem(item.id, 'unit', event.target.value)} required>
+                  <option value="" disabled>{t('اختر الوحدة', 'Choose a unit')}</option>
+                  {item.unit && !standardPurchaseUnit(item.unit) && <option value={item.unit} disabled>{item.unit}</option>}
+                  {purchaseUnits.map(unit => <option key={unit.value} value={unit.value}>{t(unit.value, unit.english)}</option>)}
+                </select></Field>
                 <Field title={vatPercent ? t('سعر الوحدة قبل الضريبة', 'Unit price before VAT') : t('سعر الوحدة', 'Unit price')}><input type="number" inputMode="decimal" min="0" max="1000000000" step="0.01"
                   value={item.price} onChange={event => updateItem(item.id, 'price', event.target.value)} required />
                   {currency === 'SAR' && item.price && <PoundEquivalent amount={invoiceItems[index].unit_price} lang={lang} />}

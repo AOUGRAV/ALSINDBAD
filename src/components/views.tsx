@@ -16,10 +16,12 @@ function InvoiceDetail({ entry, lang }: { entry: Entry; lang: Lang }) {
   if (!items) return null;
   const vatPercent = entry.invoice_vat_percent ?? invoiceVatPercent;
   const totals = invoiceTotals(items, vatPercent);
-  const method = { cash: t('نقدي', 'Cash'), bank: t('تحويل بنكي', 'Bank transfer'), card: t('بطاقة', 'Card') }[entry.method];
+  const method = entry.paid === 0 ? t('آجل', 'On credit') :
+    { cash: t('نقدي', 'Cash'), bank: t('تحويل بنكي', 'Bank transfer'), card: t('بطاقة', 'Card') }[entry.method];
   return <details className="invoice-detail">
     <summary>{t('تفاصيل الفاتورة', 'Invoice details')}</summary>
-    <ul>{items.map((item, index) => <li key={index}><strong>{item.name}</strong>
+    <ul>{items.map((item, index) => <li key={index}><div><strong>{lang === 'en' && item.name_en ? item.name_en : item.name}</strong>
+      {item.name_en && item.name_en !== item.name && <small className="table-sub" dir="auto">{lang === 'en' ? item.name : item.name_en}</small>}</div>
       <span><bdi>{item.quantity}</bdi> {item.unit} × <MoneyAmount amount={item.unit_price} currency={entry.currency} lang={lang} /></span></li>)}</ul>
     {totals && <dl>
       <div><dt>{t('قبل الضريبة', 'Before VAT')}</dt><dd><MoneyAmount amount={totals.subtotal} currency={entry.currency} lang={lang} /></dd></div>

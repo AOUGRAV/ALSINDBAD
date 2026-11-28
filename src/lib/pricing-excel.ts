@@ -10,7 +10,7 @@ const methods = ['Quantity', 'Purchase value'];
 const pricingHeader = 14;
 const expenseHeader = 5;
 const reservedRows = 25;
-const englishUnit: Record<string, string> = {'كرتون': 'Carton', 'بالة': 'Bale', 'حبة': 'Piece', 'قطعة': 'Piece', 'علبة': 'Box', 'طبلية': 'Pallet', 'كيس': 'Bag', 'كيلو': 'kg'};
+const englishUnit: Record<string, string> = {'كرتون': 'Carton', 'درزن': 'Dozen', 'بالة': 'Bale', 'حبة': 'Piece', 'قطعة': 'Piece', 'علبة': 'Box', 'طبلية': 'Pallet', 'كيس': 'Bag', 'كيلو': 'kg'};
 
 function paint(cell: Cell, color: string) {
   cell.fill = { type: 'pattern', pattern: 'solid', fgColor: {argb: color} };

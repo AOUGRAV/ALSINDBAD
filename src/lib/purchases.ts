@@ -2,7 +2,17 @@ import { z } from 'zod';
 
 export const invoiceVatPercent = 15;
 export type InvoiceVatPercent = 0 | typeof invoiceVatPercent;
-export const maxInvoiceItems = 50;
+export const maxInvoiceItems = 100;
+export const purchaseUnits = [
+  { value: 'درزن', english: 'Dozen', aliases: ['درزن', 'دزن', 'دزينة', 'dozen', 'doz', 'dz'] },
+  { value: 'كرتون', english: 'Carton', aliases: ['كرتون', 'كرتونة', 'كرتونه', 'كراتين', 'carton', 'cartons', 'ctn', 'ctns', 'crt', 'crtn'] },
+  { value: 'كيس', english: 'Bag', aliases: ['كيس', 'أكياس', 'اكياس', 'bag', 'bags', 'sack'] },
+] as const;
+
+export function standardPurchaseUnit(unit: string) {
+  const key = unit.trim().normalize('NFKC').replace(/[.\u0640\u064b-\u065f]/g, '').toLowerCase();
+  return purchaseUnits.find(option => option.aliases.some(alias => alias === key))?.value;
+}
 const maxEntryMinor = 100_000_000_000;
 
 export const invoiceItemSchema = z.object({
